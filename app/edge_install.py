@@ -99,7 +99,12 @@ def install_unpacked(folder: Path, emit=lambda _: None, profile: Path | None = N
             _activate(developer)
     if opened_menu and menu is not None:
         try:
-            _activate(menu)
+            # Enabling developer mode re-renders the menu; the old UIA element
+            # can silently ignore Invoke. Reacquire and click the visible control.
+            menu = _named(target, ("Extensions menu", "قائمة الملحقات", "قائمة الامتدادات"))
+            if menu is not None:
+                menu.click_input()
+                time.sleep(0.5)
         except Exception:
             pass  # Drawer may already have closed during the layout update.
     load = None
@@ -110,7 +115,7 @@ def install_unpacked(folder: Path, emit=lambda _: None, profile: Path | None = N
             break
         time.sleep(0.4)
     if load is None:
-        raise OSError("Edge منع الإضافة التلقائية؛ استخدم فتح صفحة الإضافات أدناه.")
+        raise OSError("تعذر إتمام الإضافة تلقائيًا؛ استخدم فتح صفحة الإضافات أدناه.")
     _activate(load)
     dialog = None
     deadline = time.monotonic() + 12
