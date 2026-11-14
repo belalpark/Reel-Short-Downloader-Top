@@ -79,6 +79,52 @@ def click(handle):
     USER32.SendMessageW(handle, 0x00F5, 0, 0)  # BM_CLICK on the real native button.
 
 
+def check_incomplete_installer(root, evidence):
+    # Build a deliberately incomplete copy; do not alter the healthy installer.
+    target = Path(os.environ["RUNNER_TEMP"]) / "ReelShortMissingToolTest"
+    build = Path(os.environ["RUNNER_TEMP"]) / "ReelShortNegativeBuild"
+    build.mkdir(exist_ok=True)
+    tool = root / "dist/ReelShortDownloaderTop/tools/ffmpeg.exe"
+    backup = build / "ffmpeg.exe"
+    tool.replace(backup)
+    try:
+        compiler = Path(r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
+        compiled = subprocess.run([str(compiler), "/O" + str(build), "/FReelShortNegative", str(root / "installer/ReelShortDownloaderTop.iss")], cwd=root, capture_output=True, text=True, errors="replace", timeout=180)
+        (evidence / "installer-negative-build.log").write_text(compiled.stdout + compiled.stderr, encoding="utf-8")
+        assert compiled.returncode == 0, "Negative installer fixture failed to compile"
+    finally:
+        backup.replace(tool)
+    process = subprocess.Popen([str(build / "ReelShortNegative.exe"), "/SP-", "/NORESTART", f"/DIR={target}", f"/LOG={evidence / 'installer-incomplete.log'}"])
+    try:
+        last_click = 0.0
+        def requirements():
+            nonlocal last_click
+            wizard = setup_window()
+            if not wizard:
+                return None
+            controls = buttons(wizard[0])
+            assert not any(text == "Finish" for _, text in controls), "Finish appeared despite missing FFmpeg"
+            if any(text == "Retry" for _, text in controls):
+                return wizard
+            if time.monotonic() - last_click > 0.7:
+                for handle, text in controls:
+                    if text in ("Next", "Next >", "Install"):
+                        USER32.PostMessageW(handle, 0x00F5, 0, 0)
+                        last_click = time.monotonic()
+                        break
+            return None
+        wizard = wait_for(requirements, "missing tool blocks Finish", timeout=120)
+        ImageGrab.grab().save(evidence / "installer-incomplete.png")
+        cancel = next(h for h, text in buttons(wizard[0]) if text == "Cancel")
+        click(cancel)
+        assert process.wait(timeout=30) == 12, "Incomplete setup did not report failure"
+        removed = subprocess.run([str(target / "unins000.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"], timeout=60)
+        assert removed.returncode == 0 and not (target / "ReelShortDownloaderTop.exe").exists()
+    finally:
+        if process.poll() is None:
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True)
+
+
 def main():
     root = Path(__file__).resolve().parents[1]
     evidence = root / "test-results"
@@ -122,9 +168,11 @@ def main():
         uninstaller = target / "unins000.exe"
         remove = subprocess.run([str(uninstaller), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"], timeout=60)
         assert remove.returncode == 0 and not (target / "ReelShortDownloaderTop.exe").exists()
+        check_incomplete_installer(root, evidence)
         write_json(evidence / "installer-interactive.json", {"real_installer": True,
             "finish_after_core_requirements": True, "pairing_wizard_required": False,
-            "application_launched": True, "uninstall_passed": True})
+            "application_launched": True, "uninstall_passed": True,
+            "missing_tool_blocks_finish": True, "incomplete_exit_code": 12})
     finally:
         if process.poll() is None:
             ImageGrab.grab().save(evidence / "installer-timeout.png")

@@ -120,7 +120,10 @@ def install_unpacked(folder: Path, emit=lambda _: None, profile: Path | None = N
     dialog = None
     deadline = time.monotonic() + 12
     while time.monotonic() < deadline:
-        dialog = next((w for w in desktop.windows(class_name="#32770") if w.process_id() == target.process_id()), None)
+        dialog = next((w for w in target.descendants(control_type="Window")
+                       if w.element_info.class_name == "#32770" and w.is_visible()), None)
+        if dialog is None:
+            dialog = next((w for w in desktop.windows(class_name="#32770") if w.process_id() == target.process_id()), None)
         if dialog:
             break
         time.sleep(0.3)
@@ -128,7 +131,7 @@ def install_unpacked(folder: Path, emit=lambda _: None, profile: Path | None = N
         raise OSError("لم يظهر اختيار مجلد الملحق؛ أكمل الخطوة الظاهرة في Edge.")
     dialog.set_focus()
     edits = dialog.descendants(control_type="Edit")
-    entry = next((e for e in edits if e.element_info.automation_id == "1148"), None)
+    entry = next((e for e in edits if e.element_info.automation_id in ("1152", "1148")), None)
     if entry:
         entry.set_edit_text(str(folder))
     else:
