@@ -69,11 +69,18 @@ def install_unpacked(folder: Path, emit=lambda _: None, profile: Path | None = N
         target.type_keys("^l")
         target.type_keys("edge://extensions/{ENTER}", with_spaces=True)
     developer = None
+    menu = None
+    opened_menu = False
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
         developer = _named(target, ("Developer mode", "وضع المطور", "وضع المطوّر"), ("devMode",))
         if developer:
             break
+        if not opened_menu:
+            menu = _named(target, ("Extensions menu", "قائمة الملحقات", "قائمة الامتدادات"))
+            if menu is not None:
+                _activate(menu)
+                opened_menu = True
         time.sleep(0.5)
     if developer is None:
         raise OSError("أكمل إعداد Edge الظاهر، ثم اضغط إضافة الملحق مجددًا.")
@@ -87,6 +94,11 @@ def install_unpacked(folder: Path, emit=lambda _: None, profile: Path | None = N
             developer.toggle()
         except (AttributeError, RuntimeError):
             _activate(developer)
+    if opened_menu and menu is not None:
+        try:
+            _activate(menu)
+        except Exception:
+            pass  # Drawer may already have closed during the layout update.
     load = None
     deadline = time.monotonic() + 12
     while time.monotonic() < deadline:

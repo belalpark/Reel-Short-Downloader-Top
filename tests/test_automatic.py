@@ -157,6 +157,14 @@ class AutomaticTests(unittest.TestCase):
         with patch('app.bridge.time.monotonic', return_value=108):
             self.assertEqual(bridge.status()['page_url'], '')
 
+    def test_removed_completed_file_does_not_break_the_ui(self):
+        controller = self.controller()
+        controller.begin(SID, 'run')
+        controller.completed[SID + '/1'] = str(self.root / 'removed.webm')
+        item = load_catalog(Inbox(self.root / 'Inbox').save(state('run'), 'run'))[0]
+        with patch.object(Path, 'is_file', return_value=True), patch.object(Path, 'stat', side_effect=FileNotFoundError):
+            self.assertFalse(controller._is_complete(item))
+
 
 if __name__ == '__main__':
     unittest.main()

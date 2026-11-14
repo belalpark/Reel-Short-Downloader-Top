@@ -25,6 +25,7 @@ class DesktopApp:
         self.exit_code = 0
         self.events, self.logs = queue.Queue(), []
         self.checks, self.checking, self.installing = [], False, False
+        self.return_after_install = False
         self.entries, self.scan_meta = [], {}
         self.row_status = {}
         self.bridge = None
@@ -151,6 +152,7 @@ class DesktopApp:
             self.status.set("الملحق جاهز. افتح المسلسل واضغط بدء التنزيل.")
             return
         self.installing = True
+        self.return_after_install = True
         self.status.set("جارٍ إضافة الملحق إلى Edge…")
         def worker():
             try:
@@ -272,6 +274,7 @@ class DesktopApp:
                 self.status.set("جارٍ التحقق من الملحق؛ سيظهر جاهز تلقائيًا.")
             elif kind == "extension_error":
                 self.installing = False
+                self.return_after_install = False
                 self.logs.append(redact(args[0]))
                 self.status.set(args[0][:190])
                 self.fallback.pack(fill="x", before=self.table.master, pady=(3, 7))
@@ -286,6 +289,10 @@ class DesktopApp:
         self.connection.set("الملحق جاهز ومتصل تلقائيًا" if connected else "أضف الملحق من الزر ٢ — دون رمز ربط")
         if connected:
             self.fallback.pack_forget()
+            if self.return_after_install and not self.installing:
+                self.return_after_install = False
+                self.root.lift()
+                self.root.focus_force()
         if state.get("command_error"):
             self.status.set(state["command_error"])
             if self.automatic.enabled:

@@ -132,7 +132,10 @@ class AutomaticDownloads:
         if not isinstance(path, str):
             return False
         file = Path(path)
-        return file.is_file() and file.stat().st_size >= 128 and file.resolve().is_relative_to(self.destination.resolve())
+        try:
+            return file.is_file() and file.stat().st_size >= 128 and file.resolve().is_relative_to(self.destination.resolve())
+        except OSError:
+            return False
 
     def tick(self):
         with self.lock:
