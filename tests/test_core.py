@@ -133,6 +133,23 @@ class BridgeTests(unittest.TestCase):
     def test_only_loopback_is_bound(self):
         self.assertEqual(self.bridge.server.server_address[0], "127.0.0.1")
 
+    def test_immediate_restart_after_authenticated_request(self):
+        _, data, _ = self.request()
+        self.assertEqual(self.request('/heartbeat', token=data['token'])[0], 200)
+        port = self.bridge.port
+        self.bridge.close()
+        self.bridge = Bridge(self.path, port=port)
+        self.bridge.start()
+        self.assertEqual(self.request('/heartbeat', token=data['token'])[0], 200)
+
+    def test_second_listener_cannot_take_the_running_port(self):
+        other = Bridge(self.path, port=self.bridge.port)
+        try:
+            with self.assertRaises(OSError):
+                other.start()
+        finally:
+            other.close()
+
     def test_pair_persist_and_authenticated_heartbeat(self):
         status, data, cors = self.request()
         self.assertEqual(status, 200)

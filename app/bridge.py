@@ -4,9 +4,11 @@ from __future__ import annotations
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hmac
 import json
+import os
 from pathlib import Path
 import re
 import secrets
+import socket
 import threading
 import time
 
@@ -139,6 +141,22 @@ class Bridge:
                 super().setup()
                 self.connection.settimeout(3)
 
+            def finish(self):
+                try:
+                    super().finish()
+                finally:
+                    # Complete the HTTP/1.0 close handshake before releasing the
+                    # listener. Windows exclusive sockets need graceful closure.
+                    try:
+                        self.connection.shutdown(socket.SHUT_WR)
+                        deadline = time.monotonic() + 0.5
+                        while time.monotonic() < deadline:
+                            self.connection.settimeout(max(0.01, deadline - time.monotonic()))
+                            if not self.connection.recv(4096):
+                                break
+                    except OSError:
+                        pass
+
             def _valid_host(self):
                 return self.headers.get("Host") == f"127.0.0.1:{bridge.port}"
 
@@ -193,9 +211,16 @@ class Bridge:
                 self._reply(code, reply)
 
         class Server(ThreadingHTTPServer):
-            daemon_threads = True
-            allow_reuse_address = False
+            daemon_threads = False
+            block_on_close = True
+            allow_reuse_address = os.name != "nt"
+            allow_reuse_port = False
             request_queue_size = 8
+
+            def server_bind(self):
+                if os.name == "nt":
+                    self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                super().server_bind()
 
         self.server = Server(("127.0.0.1", self.port), Handler)
         self.port = self.server.server_port
