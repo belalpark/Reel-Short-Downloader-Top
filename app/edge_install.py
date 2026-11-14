@@ -21,6 +21,9 @@ def _named(window, names, ids=()):
         if item.element_info.automation_id in ids:
             return item
     for item in controls:
+        if _normal(item.element_info.name) in wanted and item.element_info.control_type in ("Button", "CheckBox", "RadioButton"):
+            return item
+    for item in controls:
         if _normal(item.element_info.name) in wanted:
             return item
     return None
@@ -73,7 +76,7 @@ def install_unpacked(folder: Path, emit=lambda _: None, profile: Path | None = N
     opened_menu = False
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
-        developer = _named(target, ("Developer mode", "وضع المطور", "وضع المطوّر"), ("devMode",))
+        developer = _named(target, ("Developer mode", "وضع المطور", "وضع المطوّر"), ("dev-switch", "devMode"))
         if developer:
             break
         if not opened_menu:
