@@ -1,0 +1,140 @@
+name: Test and build Windows
+
+on:
+  push:
+    branches: [main, 'codex/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Python regression tests
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: JavaScript regression tests
+        run: node --test tests/extension.test.cjs
+      - name: Parse Windows scripts
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem scripts -Filter '*.ps1' | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm install --no-save --package-lock=false playwright@1.56.1
+      - run: npx playwright install --with-deps chromium
+      - name: Offline browser integration
+        run: node tests/browser.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-evidence
+          path: test-results/
+          if-no-files-found: ignore
+
+  windows:
+    needs: [tests, browser]
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r build-requirements.txt
+      - name: Download and verify pinned tools
+        shell: pwsh
+        run: ./scripts/Download-Dependencies.ps1
+      - name: Build self-contained application
+        run: python scripts/package.py
+      - name: Test packaged runtime and real GUI
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force test-results | Out-Null
+          $exe = (Resolve-Path 'dist/ReelShortDownloaderTop/ReelShortDownloaderTop.exe').Path
+          $p = Start-Process -FilePath $exe -ArgumentList '--check-runtime --report test-results/runtime.json' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content test-results/runtime.json; throw 'Packaged runtime check failed' }
+          $p = Start-Process -FilePath $exe -ArgumentList '--smoke-test --report test-results/gui.json --screenshot test-results/gui.png' -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or -not (Test-Path test-results/gui.json)) { throw 'Packaged GUI smoke test failed' }
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup 6 compiler is missing from runner' }
+          & $iscc installer/ReelShortDownloaderTop.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+      - name: Test installer refusal without activated extension
+        shell: pwsh
+        run: ./scripts/Test-Installer.ps1
+      - name: Create portable archive and checksums
+        shell: pwsh
+        run: |
+          Compress-Archive -Path dist/ReelShortDownloaderTop -DestinationPath release/ReelShortDownloaderTop-Portable-0.1.0-win-x64.zip
+          Get-ChildItem release -File | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content release/SHA256SUMS.txt -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-evidence
+          path: test-results/
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ReelShortDownloaderTop-Windows-x64
+          path: release/
+          retention-days: 30
+
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ReelShortDownloaderTop-Windows-x64
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          prerelease: true
+          files: release/*
+          body: |
+            Windows preview build. Automated checks cover the package runtime, GUI startup and installer refusal without activation.
+            A successful interactive installation and playback on a real ReelShort account still require manual acceptance. This is not a verified production release.

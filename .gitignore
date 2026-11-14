@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+build/
+dist/
+release/
+vendor/
+test-results/
+*.log
+*.part
+*.ytdl
+connection.json
+settings.json
+Downloads/

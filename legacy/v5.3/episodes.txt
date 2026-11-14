@@ -1,0 +1,3 @@
+# ضع روابط الحلقات المتاحة والمصرح لك بحفظها هنا، رابطًا واحدًا في كل سطر، وبالترتيب.
+# Example: https://example.org/episode-01.mp4
+# Example: https://example.org/episode-02.m3u8

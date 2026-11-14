@@ -1,0 +1,21 @@
+{
+  "archive": "Drama_Series_Scanner_v5_3.zip",
+  "sha256": "2789055f0dd9f65c4899c828c7973241617c19b2d94dd11120806beb51ba19b2",
+  "files": {
+    "legacy/v5.3/Chrome_Extension/background.js": "fbc4ac0947b3a45066112c11a1b70dbf3327abca2bb19b1a4b44fb151440ec0e",
+    "legacy/v5.3/Chrome_Extension/csv_importer.js": "a5d21780b0942e2bb110402280977fbf1c0a963cf2c41fbb7f617e5674074e7b",
+    "legacy/v5.3/Chrome_Extension/hls_observer.js": "9ea68fdfad76685147b251764a1eb5b4079745411b66ab03c7b2140a54da37b6",
+    "legacy/v5.3/Chrome_Extension/manifest.json": "af9bab316604778e0c19f8bea7af32e74eaa96ca399cd2028062bc99f9a96296",
+    "legacy/v5.3/Chrome_Extension/page_agent.js": "a17463d0b77b4741266cdd84e703e726f6e46a5523bf54d1c8be069feb300e4d",
+    "legacy/v5.3/Chrome_Extension/playback_probe.js": "6bb2d4529efcb1370d6ec1b6310a9aacd8e08067c774c8a96332fb37211b9c3e",
+    "legacy/v5.3/Chrome_Extension/popup.html": "99cee4810369ebb6810c1df4aeaf5a1f20f0388333269a8cd95cc4c1da2079b6",
+    "legacy/v5.3/Chrome_Extension/popup.js": "04f8550b782efd5e05fd1ac55e91396a1f10c4a859380d5aefc69c1a2373d717",
+    "legacy/v5.3/Chrome_Extension/scanner_core.js": "c2e5a8be4b82bb4ace9af549fbf7a0e90b0ba519895608064fd5d9f3ffa642a1",
+    "legacy/v5.3/README_AR.md": "0364d976d8fd92f451e82a943b0676294f2edbe7113c343637101fda7b1676a2",
+    "legacy/v5.3/START_HERE.cmd": "e16fff99b7440b48f210454255bc2065e25ffb6c60f77548ef74887f7cc5872f",
+    "legacy/v5.3/episodes.txt": "2777f5009b4b80e28e8797a0dda6d4cacad3e839b4aea61673a53fb7842b9c3d",
+    "legacy/v5.3/import_collector.ps1": "44e8b85b3fbedd248e06d08dea992dc3e30abd17dd120fbcd756bcdb2e3d9e44",
+    "legacy/v5.3/inspect_html.ps1": "49b04ac4d44f317716699d719f0c8844d4adb150e6feec018c07e2fa68fac17c",
+    "legacy/v5.3/video_archiver.ps1": "15a77c834e16acd97db55e9c844c88f8e7e86628a9f87313c34ac63877ebc4b7"
+  }
+}

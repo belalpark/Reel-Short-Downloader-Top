@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "Drama Series Scanner - Playback Diagnostics v5.3",
+  "version": "5.3.0",
+  "description": "Indexes episode pages and passively diagnoses playback and HLS candidates from the ReelShort tab. No DRM, paywall or decryption bypass.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://www.reelshort.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.reelshort.com/*"
+      ],
+      "js": [
+        "scanner_core.js",
+        "hls_observer.js",
+        "playback_probe.js",
+        "page_agent.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Drama Series Scanner"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
