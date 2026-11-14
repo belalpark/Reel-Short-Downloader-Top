@@ -7,8 +7,17 @@ import threading
 
 from app.bridge import Bridge
 
+
+class ObservableBridge(Bridge):
+    def receive(self, path, origin, auth, body, user_agent):
+        status, result = super().receive(path, origin, auth, body, user_agent)
+        if path == "/heartbeat" and status == 200:
+            print(json.dumps({"authenticated_heartbeat": True}), flush=True)
+        return status, result
+
+
 with tempfile.TemporaryDirectory() as folder:
-    bridge = Bridge(Path(folder) / "connection.json")
+    bridge = ObservableBridge(Path(folder) / "connection.json")
     bridge.start()
     print(json.dumps({"code": bridge.enable_pairing()}), flush=True)
     done = threading.Event()

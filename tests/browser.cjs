@@ -36,6 +36,10 @@ function fixture(n) {
     const lines=readline.createInterface({input:child.stdout});
     const first=await Promise.race([once(lines,'line'),once(child,'exit').then(([code])=>{throw Error('Bridge fixture exited: '+code);}),delay(10000).then(()=>{throw Error('Bridge fixture startup timed out');})]);
     const {code}=JSON.parse(first[0]);
+    let authenticatedHeartbeats=0;
+    lines.on('line',line=>{
+      try {if(JSON.parse(line).authenticated_heartbeat)authenticatedHeartbeats++;} catch(_) {}
+    });
     const extension=path.join(ROOT,'extension');
     context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
     const worker=context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
@@ -58,13 +62,11 @@ function fixture(n) {
     assert.match(await popup.locator('#desktopStatus').innerText(),/داخل Microsoft Edge/);
     const alarm=await worker.evaluate(()=>chrome.alarms.get('desktop-readiness'));
     assert.equal(alarm.periodInMinutes,0.5);
-    let backgroundHeartbeat=false,closedAt=0;
-    context.on('response',response=>{
-      if(closedAt && Date.now()-closedAt>500 && response.url()==='http://127.0.0.1:18765/heartbeat' && response.status()===200) backgroundHeartbeat=true;
-    });
     await popup.close();
-    closedAt=Date.now();
-    await waitFor(()=>backgroundHeartbeat,45000);
+    await delay(500);
+    const beforeBackground=authenticatedHeartbeats;
+    await waitFor(()=>authenticatedHeartbeats>beforeBackground,45000);
+    const backgroundHeartbeat=true;
     popup=await context.newPage();
     await popup.goto(`chrome-extension://${extId}/popup.html`);
     await reel.bringToFront();
