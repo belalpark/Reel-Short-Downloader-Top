@@ -25,7 +25,7 @@ def main():
     with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'], prefix='reel-edge-', ignore_cleanup_errors=True) as temporary:
         work = Path(temporary)
         extension = work / 'Extension'
-        provision_extension(root / 'dist' / 'ReelShortDownloaderTop' / 'extension', extension, work / 'connection.json')
+        provision_extension(root / 'extension', extension, work / 'connection.json')
         bridge = Bridge(work / 'connection.json', inbox=work / 'Inbox')
         browser_pid = None
         bridge.start()

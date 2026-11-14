@@ -78,6 +78,8 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r build-requirements.txt
+      - name: Test Edge extension installation without a PIN
+        run: python -m scripts.test_edge_setup
       - name: Download and verify pinned tools
         shell: pwsh
         run: ./scripts/Download-Dependencies.ps1
@@ -104,8 +106,6 @@ jobs:
       - name: Test installer and bundled requirements
         shell: pwsh
         run: ./scripts/Test-Installer.ps1
-      - name: Test Edge extension installation without a PIN
-        run: python -m scripts.test_edge_setup
       - name: Test interactive installation and normal app launch
         run: python -m scripts.test_installer_ui
       - name: Create portable archive and checksums

@@ -81,6 +81,7 @@ class Inbox:
                 load_catalog(Path(name))  # Same validation used by the actual downloader.
                 os.replace(name, target)
                 write_json(target.with_suffix(".json"), {"run_id": run_id, "series_id": sid,
+                    "revision": secrets.token_hex(16),
                     "running": bool(state.get("running")), "paused": bool(state.get("paused")), "finished": bool(state.get("finished")),
                     "pass": int(state.get("autoPass", 1)), "note": str(state.get("note", ""))[:500],
                     "updated_at": str(state.get("updatedAt", ""))})
@@ -142,7 +143,7 @@ class AutomaticDownloads:
             meta = read_json(meta_path, {})
             if meta.get("run_id") != self.run_id or not path.is_file():
                 return
-            stamp = (path.stat().st_mtime_ns, meta_path.stat().st_mtime_ns)
+            stamp = meta.get("revision") or (path.stat().st_mtime_ns, meta_path.stat().st_mtime_ns)
             if stamp != self.last_stamp:
                 entries = load_catalog(path)
                 if entries[0].series_id != self.series_id:

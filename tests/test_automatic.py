@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -93,12 +94,16 @@ class AutomaticTests(unittest.TestCase):
         inbox = Inbox(self.root / 'Inbox')
         controller = self.controller()
         controller.begin(SID, 'run')
-        inbox.save(state('run', 1), 'run')
+        path = inbox.save(state('run', 1), 'run')
+        stamps = {p: (p.stat().st_atime_ns, p.stat().st_mtime_ns) for p in (path, path.with_suffix('.json'))}
         controller.tick()
         controller.tick()
         self.assertEqual(controller.queue.start.call_count, 1)
         self.assertEqual([x.episode for x in controller.queue.start.call_args.args[0]], [1])
         inbox.save(state('run', 2), 'run')
+        # Windows can report the same timestamp for rapid replacements. New content must still queue.
+        for path, stamp in stamps.items():
+            os.utime(path, ns=stamp)
         controller.tick()
         self.assertEqual(controller.queue.start.call_count, 2)
         self.assertEqual([x.episode for x in controller.queue.start.call_args.args[0]], [2])
