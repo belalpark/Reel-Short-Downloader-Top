@@ -28,6 +28,7 @@ def main():
             print(json.dumps(checks, ensure_ascii=False))
         return 0 if all(c["ok"] for c in checks) else 12
     import tkinter as tk
+    from tkinter import ttk
     from app.ui import DesktopApp
     if sys.platform == "win32":
         import ctypes
@@ -46,7 +47,11 @@ def main():
             try:
                 root.update_idletasks()
                 assert len(app.step_buttons) == 3
-                assert not any(isinstance(w, (tk.Entry,)) for w in root.winfo_children())
+                def descendants(widget):
+                    for child in widget.winfo_children():
+                        yield child
+                        yield from descendants(child)
+                assert not any(isinstance(w, (tk.Entry, ttk.Entry)) for w in descendants(root))
                 for button in app.step_buttons:
                     assert button.winfo_viewable()
                     assert button.winfo_rooty() + button.winfo_height() <= root.winfo_rooty()+root.winfo_height()

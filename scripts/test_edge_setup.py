@@ -13,6 +13,7 @@ from app.automatic import provision_extension
 from app.bridge import Bridge
 from app.edge_install import install_unpacked
 from app.paths import write_json
+from app.runtime import edge_path, process_options
 
 
 def main():
@@ -21,7 +22,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     evidence = root / 'test-results'
     evidence.mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'], prefix='reel-edge-') as temporary:
+    with tempfile.TemporaryDirectory(dir=os.environ['RUNNER_TEMP'], prefix='reel-edge-', ignore_cleanup_errors=True) as temporary:
         work = Path(temporary)
         extension = work / 'Extension'
         provision_extension(root / 'dist' / 'ReelShortDownloaderTop' / 'extension', extension, work / 'connection.json')
@@ -29,6 +30,9 @@ def main():
         browser_pid = None
         bridge.start()
         try:
+            # Step 1 already opened Edge: test installation into that same running profile.
+            subprocess.Popen([str(edge_path()), '--no-first-run', '--user-data-dir=' + str(work / 'EdgeProfile'), 'about:blank'], **process_options())
+            time.sleep(3)
             browser_pid = install_unpacked(extension, lambda text: print(text, flush=True), profile=work / 'EdgeProfile')
             deadline = time.monotonic() + 65
             while time.monotonic() < deadline and not bridge.status()['connected']:

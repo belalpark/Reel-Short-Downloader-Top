@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from app import EXTENSION_VERSION
 from app.automatic import AutomaticDownloads, Inbox, provision_extension, series_from_page
@@ -135,6 +135,22 @@ class AutomaticTests(unittest.TestCase):
     def test_series_id_requires_the_official_origin(self):
         self.assertEqual(series_from_page(f'https://www.reelshort.com/series-{SID}'), SID)
         self.assertEqual(series_from_page(f'https://attacker.example/series-{SID}'), '')
+
+    def test_unacknowledged_command_expires_instead_of_leaving_start_disabled(self):
+        bridge = Bridge(self.credentials)
+        with patch('app.bridge.time.monotonic', return_value=100):
+            bridge.command('start', SID)
+        with patch('app.bridge.time.monotonic', return_value=116):
+            result = bridge.status()
+        self.assertEqual(result['pending_kind'], '')
+        self.assertTrue(result['command_error'])
+
+    def test_closed_website_is_not_advertised_as_an_active_series(self):
+        bridge = Bridge(self.credentials)
+        bridge.active_page = f'https://www.reelshort.com/series-{SID}'
+        bridge.page_seen = 100
+        with patch('app.bridge.time.monotonic', return_value=108):
+            self.assertEqual(bridge.status()['page_url'], '')
 
 
 if __name__ == '__main__':

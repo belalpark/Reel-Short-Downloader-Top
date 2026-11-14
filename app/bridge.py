@@ -39,6 +39,8 @@ class Bridge:
         self.active_run_id = ""
         self.active_series_id = ""
         self.active_page = ""
+        self.page_seen = 0.0
+        self.command_since = 0.0
         self.command_error = ""
 
     def enable_pairing(self) -> str:
@@ -50,8 +52,13 @@ class Bridge:
 
     def status(self) -> dict:
         with self.lock:
+            if self.pending_command and time.monotonic() - self.command_since > 15:
+                if self.pending_command["kind"] == "start":
+                    self.command_error = "تعذر بدء الفحص. افتح المسلسل في Edge ثم اضغط بدء التنزيل مجددًا."
+                self.pending_command = None
             age = time.monotonic() - self.last_seen if self.last_seen else None
-            return {"connected": age is not None and age < STALE_SECONDS and self.browser == "Edge", "browser": self.browser, "age_seconds": round(age, 1) if age is not None else None, "extension_version": EXTENSION_VERSION, "page_url": self.active_page, "command_error": self.command_error, "pending_kind": self.pending_command["kind"] if self.pending_command else ""}
+            page = self.active_page if self.page_seen and time.monotonic() - self.page_seen < 7 else ""
+            return {"connected": age is not None and age < STALE_SECONDS and self.browser == "Edge", "browser": self.browser, "age_seconds": round(age, 1) if age is not None else None, "extension_version": EXTENSION_VERSION, "page_url": page, "command_error": self.command_error, "pending_kind": self.pending_command["kind"] if self.pending_command else ""}
 
     def command(self, kind: str, series_id: str = "") -> str:
         if kind not in ("start", "stop"):
@@ -59,6 +66,7 @@ class Bridge:
         with self.lock:
             command_id = secrets.token_hex(16)
             self.pending_command = {"id": command_id, "kind": kind, "series_id": series_id}
+            self.command_since = time.monotonic()
             self.command_error = ""
             if kind == "start":
                 self.active_run_id, self.active_series_id = command_id, series_id
@@ -102,6 +110,7 @@ class Bridge:
                 page = str(body.get("pageUrl", ""))[:4096]
                 if page.startswith("https://www.reelshort.com/"):
                     self.active_page = page
+                    self.page_seen = time.monotonic()
                 if self.pending_command and (not self.pending_command["series_id"] or series_from_page(page) == self.pending_command["series_id"]):
                     reply["command"] = dict(self.pending_command)
             if path == "/ack" and self.pending_command and body.get("commandId") == self.pending_command["id"]:

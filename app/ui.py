@@ -13,7 +13,7 @@ from .automatic import AutomaticDownloads, provision_extension, series_from_page
 from .bridge import Bridge
 from .downloader import redact
 from .edge_install import install_unpacked
-from .paths import bundle_root, data_root, downloads_root
+from .paths import bundle_root, data_root, downloads_root, read_json, write_json
 from .runtime import check_runtime, open_edge
 
 NAVY, BLUE, BG, MUTED = "#152540", "#2563EB", "#F2F5FA", "#60718B"
@@ -29,7 +29,9 @@ class DesktopApp:
         self.row_status = {}
         self.bridge = None
         self.extension_folder = data_root() / "Extension"
-        self.destination = downloads_root()
+        settings = read_json(data_root() / "settings.json", {})
+        saved_folder = settings.get("download_folder") if isinstance(settings, dict) else None
+        self.destination = Path(saved_folder) if isinstance(saved_folder, str) and Path(saved_folder).is_absolute() else downloads_root()
         self.automatic = AutomaticDownloads(bundle_root(), data_root() / "Inbox", self.destination, data_root(), self.events.put)
         self.closed = False
         root.title("Reel Short Downloader Top")
@@ -204,6 +206,7 @@ class DesktopApp:
         selected = filedialog.askdirectory(parent=self.root, title="مجلد حفظ المقاطع")
         if selected:
             self.destination = self.automatic.destination = Path(selected)
+            write_json(data_root() / "settings.json", {"download_folder": selected})
             self.path_label.configure(text=selected)
             self.recheck()
 

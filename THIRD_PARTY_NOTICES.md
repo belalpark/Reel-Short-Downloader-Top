@@ -8,6 +8,9 @@ The Windows preview bundles a Python interpreter through PyInstaller, Tcl/Tk, Pi
 | Tcl/Tk | https://www.tcl-lang.org/software/tcltk/license.html — Tcl/Tk license |
 | PyInstaller | https://pyinstaller.org/en/stable/license.html — GPL with distribution exception for bundled applications |
 | Pillow | https://github.com/python-pillow/Pillow/blob/main/LICENSE |
+| pywinauto | https://github.com/pywinauto/pywinauto — BSD license; visible Windows UI automation |
+| comtypes | https://github.com/enthought/comtypes — MIT license |
+| pywin32 | https://github.com/mhammond/pywin32 — included Python/PSF notices |
 | yt-dlp | https://github.com/yt-dlp/yt-dlp — Unlicense; bundled executable has additional third-party licenses |
 | FFmpeg | https://ffmpeg.org/legal.html — chosen shared LGPL build, not the GPL build |
 | FFmpeg build scripts | https://github.com/FFmpeg-Builds/FFmpeg-Builds |
