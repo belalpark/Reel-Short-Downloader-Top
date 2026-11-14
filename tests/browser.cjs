@@ -44,13 +44,22 @@ function fixture(n,id){
       if(value.queued)queued.push(...value.queued);
     });
     context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,args:[`--disable-extensions-except=${settings.extension_path}`,`--load-extension=${settings.extension_path}`]});
-    worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
-    const extId=new URL(worker.url()).host;
+    // The service worker may sleep before Playwright attaches. Read the installed
+    // extension from Chrome's own page, then opening its popup wakes it normally.
+    const extensionsPage=await context.newPage();
+    await extensionsPage.goto('chrome://extensions/');
+    const installed=await extensionsPage.evaluate(()=>new Promise(resolve=>chrome.developerPrivate.getExtensionsInfo({includeDisabled:true,includeTerminated:true},resolve)));
+    const own=installed.find(item=>item.name.startsWith('Reel Short Downloader Top'));
+    fs.writeFileSync(path.join(OUT,'extension-startup.json'),JSON.stringify(installed.map(item=>({id:item.id,name:item.name,state:item.state,manifestErrors:item.manifestErrors,runtimeErrors:item.runtimeErrors})),null,2));
+    assert.ok(own,'Prepared extension was not loaded by Chromium');
+    const extId=own.id;
     context.on('weberror',error=>errors.push(error.error().message));
     const state=()=>worker.evaluate(async()=>(await chrome.storage.local.get('dramaScannerV5Current')).dramaScannerV5Current);
     const command=(kind,id)=>child.stdin.write(JSON.stringify({command:kind,series_id:id})+'\n');
     let popup=await context.newPage();
     await popup.goto(`chrome-extension://${extId}/popup.html`);
+    worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:60000});
+    await extensionsPage.close();
     assert.equal(await popup.locator('#desktopCode, #desktopPair, input[type=password]').count(),0);
     await waitFor(()=>authenticatedHeartbeats>0,15000,'automatic connection');
     const alarm=await worker.evaluate(()=>chrome.alarms.get('desktop-readiness'));
