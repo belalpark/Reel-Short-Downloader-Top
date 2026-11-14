@@ -49,13 +49,24 @@ function fixture(n) {
     const reel=await context.newPage();
     await reel.goto(pageURL(1));
     await reel.waitForFunction(()=>document.querySelector('video').currentTime>0.2);
-    const popup=await context.newPage();
+    let popup=await context.newPage();
     await popup.goto(`chrome-extension://${extId}/popup.html`);
     await popup.locator('#desktopCode').fill(code);
     await popup.locator('#desktopPair').click();
     await popup.locator('#desktopStatus').filter({hasText:'تم الربط'}).waitFor();
     // Chromium is deliberately not accepted as Edge by the production readiness gate.
     assert.match(await popup.locator('#desktopStatus').innerText(),/داخل Microsoft Edge/);
+    const alarm=await worker.evaluate(()=>chrome.alarms.get('desktop-readiness'));
+    assert.equal(alarm.periodInMinutes,0.5);
+    let backgroundHeartbeat=false,closedAt=0;
+    context.on('response',response=>{
+      if(closedAt && Date.now()-closedAt>500 && response.url()==='http://127.0.0.1:18765/heartbeat' && response.status()===200) backgroundHeartbeat=true;
+    });
+    await popup.close();
+    closedAt=Date.now();
+    await waitFor(()=>backgroundHeartbeat,45000);
+    popup=await context.newPage();
+    await popup.goto(`chrome-extension://${extId}/popup.html`);
     await reel.bringToFront();
     await popup.evaluate(()=>document.querySelector('#start').click());
     await waitFor(async()=>worker.evaluate(async()=>{
@@ -75,7 +86,7 @@ function fixture(n) {
     assert.equal(Object.values(imported.rows).filter(r=>r.mediaUrl).length,8);
     assert.equal(errors.length,0,errors.join('\n'));
     await popup.screenshot({path:path.join(OUT,'extension-popup.png'),fullPage:true});
-    fs.writeFileSync(path.join(OUT,'browser.json'),JSON.stringify({browser:await context.browser().version(),extensionVersion:'5.3.1',offlinePlaybackEpisodes:3,explicitMedia:2,migrationEpisodes:45,migrationMedia:8,pairing:'production bridge with Chromium; does not satisfy Edge gate',errors},null,2));
+    fs.writeFileSync(path.join(OUT,'browser.json'),JSON.stringify({browser:await context.browser().version(),extensionVersion:'5.3.1',offlinePlaybackEpisodes:3,explicitMedia:2,migrationEpisodes:45,migrationMedia:8,backgroundHeartbeat,pairing:'production bridge with Chromium; does not satisfy Edge gate',errors},null,2));
     console.log('Offline extension integration passed: navigation, real fixture playback, pairing and CSV migration.');
   } finally {
     if(context)await context.close();

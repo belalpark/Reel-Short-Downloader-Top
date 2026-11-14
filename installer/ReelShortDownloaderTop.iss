@@ -73,6 +73,17 @@ begin
   VerificationText.Caption := 'The application setup window will open. Follow its Edge activation steps. If it is closed before verification, click Retry verification to try again, or Cancel to leave setup incomplete.';
 end;
 
+procedure ExitIncompleteSetup(Sender: TObject);
+begin
+  if not ActivationVerified and not ActivationInProgress then
+  begin
+    Log('Activation gate: canceled before live Edge verification; exiting incomplete.');
+    { Inno's default Cancel ignores ssPostInstall. Use the same WM_QUIT path as
+      its internal TerminateApp so normal cleanup and GetCustomSetupExitCode run. }
+    PostMessage(0, $0012, 12, 0);
+  end;
+end;
+
 function RunActivation(): Boolean;
 var
   ResultCode: Integer;
@@ -102,8 +113,8 @@ begin
   end
   else
   begin
-    VerificationText.Caption := 'Verification did not pass. Setup is incomplete. Click Retry verification to reopen the application setup window, or Cancel to exit without reporting success.';
-    WizardForm.NextButton.Caption := 'Retry verification >';
+    VerificationText.Caption := 'Verification did not pass. Setup is incomplete. Click Retry to reopen the application setup window, or Cancel to exit without reporting success.';
+    WizardForm.NextButton.Caption := 'Retry';
   end;
   Result := ActivationVerified;
 end;
@@ -114,6 +125,7 @@ begin
   begin
     WizardForm.BackButton.Enabled := False;
     WizardForm.CancelButton.Visible := True;
+    WizardForm.CancelButton.OnClick := @ExitIncompleteSetup;
     if not ActivationAttempted then RunActivation();
   end;
 end;

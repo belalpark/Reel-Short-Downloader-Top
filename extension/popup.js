@@ -147,7 +147,7 @@ document.getElementById('candidates').addEventListener('click',()=>{
 
 const desktopStatus=document.getElementById('desktopStatus');
 function renderDesktop(result) {
-  desktopStatus.textContent=result?.ok && result.browser==='Edge' ? 'متصل بتطبيق Windows. اترك هذه النافذة مفتوحة حتى إتمام التحقق.' :
+  desktopStatus.textContent=result?.ok && result.browser==='Edge' ? 'متصل بتطبيق Windows. ارجع إلى التطبيق لإتمام التحقق.' :
     result?.ok ? 'تم الربط؛ افتح الإضافة داخل Microsoft Edge للتحقق.' :
     'غير متصل. افتح التطبيق وتحقق من الرمز؛ عند انتهاء صلاحيته اختر رمزًا جديدًا.';
 }

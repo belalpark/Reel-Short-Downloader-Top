@@ -151,7 +151,7 @@ class DesktopApp:
     def _setup_page(self):
         frame = self.setup_tab
         ttk.Label(frame, text="تجهيز المتصفح والتحقق من الاتصال", font=("Segoe UI", 18, "bold"), anchor="e").pack(fill="x")
-        ttk.Label(frame, text="1. افتح صفحة الإضافات، ثم فعّل Developer mode واختر Load unpacked.\n2. اختر مجلد الإضافة المنسوخ، ثم افتح أيقونتها وأدخل رمز الربط أدناه.\n3. اضغط «ربط التطبيق» داخل الإضافة واتركها مفتوحة حتى اكتمال التحقق.", justify="right", anchor="e", wraplength=980).pack(fill="x", pady=10)
+        ttk.Label(frame, text="1. افتح صفحة الإضافات، ثم فعّل Developer mode واختر Load unpacked.\n2. اختر مجلد الإضافة المنسوخ، ثم افتح أيقونتها وأدخل رمز الربط أدناه.\n3. اضغط «ربط التطبيق» داخل الإضافة، ثم ارجع إلى التطبيق لإتمام التحقق.", justify="right", anchor="e", wraplength=980).pack(fill="x", pady=10)
         row = ttk.Frame(frame)
         row.pack(fill="x")
         self._button(row, "نسخ المسار وفتح إضافات Edge", self.open_extensions, True).pack(side="right")

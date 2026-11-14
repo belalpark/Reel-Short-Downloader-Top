@@ -41,7 +41,9 @@
     })().then(reply).catch(e => reply({ok:false, error:String(e?.message || e)}));
     return true;
   });
-  const alarm = () => chrome.alarms.create('desktop-readiness', {periodInMinutes:1});
+  // Chrome/Edge 120+ supports 30-second alarms. The popup may close when the
+  // user returns to the desktop wizard, so readiness must also work in the background.
+  const alarm = () => chrome.alarms.create('desktop-readiness', {periodInMinutes:0.5});
   chrome.runtime.onInstalled.addListener(alarm);
   chrome.runtime.onStartup.addListener(() => { alarm(); heartbeat().catch(() => {}); });
   chrome.alarms.onAlarm.addListener(item => { if (item.name === 'desktop-readiness') heartbeat().catch(() => {}); });

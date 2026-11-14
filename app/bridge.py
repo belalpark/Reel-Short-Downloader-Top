@@ -14,6 +14,7 @@ from . import EXTENSION_VERSION, VERSION
 from .paths import read_json, write_json
 
 PORT = 18765
+STALE_SECONDS = 75
 ORIGIN = re.compile(r"^chrome-extension://([a-p]{32})$")
 
 
@@ -43,7 +44,7 @@ class Bridge:
     def status(self) -> dict:
         with self.lock:
             age = time.monotonic() - self.last_seen if self.last_seen else None
-            return {"connected": age is not None and age < 20 and self.browser == "Edge", "browser": self.browser, "age_seconds": round(age, 1) if age is not None else None, "extension_version": EXTENSION_VERSION}
+            return {"connected": age is not None and age < STALE_SECONDS and self.browser == "Edge", "browser": self.browser, "age_seconds": round(age, 1) if age is not None else None, "extension_version": EXTENSION_VERSION}
 
     def receive(self, path: str, origin: str, auth: str, body: dict, user_agent: str) -> tuple[int, dict]:
         match = ORIGIN.fullmatch(origin)

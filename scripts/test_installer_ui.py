@@ -116,7 +116,7 @@ def main():
                 return None
             controls = buttons(wizard[0])
             assert not any("Finish" in text for _, text, cls in windows(wizard[0]) if "Button" in cls), "Finish was visible before activation"
-            return next((handle for handle, text in controls if "Retry verification" in text), None)
+            return next((handle for handle, text in controls if text.startswith("Retry")), None)
         retry = wait_for(retry_button, "verification page after cancellation")
         ImageGrab.grab().save(evidence / "installer-incomplete.png")
         USER32.PostMessageW(retry, 0x00F5, 0, 0)

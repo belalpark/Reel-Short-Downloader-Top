@@ -176,7 +176,7 @@ class BridgeTests(unittest.TestCase):
 
     def test_stale_connection_does_not_count_as_active(self):
         self.request()
-        self.bridge.last_seen -= 21
+        self.bridge.last_seen -= 76
         self.assertFalse(self.bridge.status()["connected"])
 
     def test_pair_code_cannot_be_read_over_http(self):
