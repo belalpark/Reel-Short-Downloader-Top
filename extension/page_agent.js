@@ -324,7 +324,11 @@
       state.autoMode=true;state.autoPass=1;state.maxPasses=Math.min(3,Math.max(1,Number(options.maxPasses)||3));
       state.retryDelayMs=Number(options.retryDelayMs)||10000;
       state.desktopCommandId=String(options.desktopCommandId||'');
-      if(previous?.seriesId===id){state.rows=previous.rows||{};state.recheckOnly=true;}
+      if(previous?.seriesId===id){
+        state.rows=Object.fromEntries(Object.entries(previous.rows||{}).map(([key,row])=>[key,{...row,mediaUrl:'',hlsCandidates:[],status:'page_only',playbackStatus:'not_checked'}]));
+        // A new run refreshes signed URLs. Missing-only retries within that run
+        // still retain all media already found; the app skips completed files.
+      }
     }
     discover(state);
     await persist(state);

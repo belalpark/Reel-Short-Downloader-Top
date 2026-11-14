@@ -100,6 +100,7 @@ function fixture(n,id){
     assert.equal(visits.get(UNAVAILABLE+'/1'),3);
     assert.equal(Object.values(unavailable.rows).filter(r=>r.mediaUrl).length,0);
     assert.deepEqual(queued,[1,2,3]);
+    await worker.evaluate(({id,url})=>chrome.storage.local.set({dramaScannerV5Current:{seriesId:id,total:1,running:false,finished:true,rows:{'1':{episode:1,pageUrl:url,mediaUrl:'https://cdn.example.org/expired.mp4?token=expired'}}}}),{id:STOP,url:pageURL(1,STOP)});
     await reel.goto(pageURL(1,STOP));
     command('start',STOP);
     await waitFor(async()=>{const s=await state();return s?.seriesId===STOP&&s.autoPass===2;},60000,'retry backoff');
@@ -122,11 +123,12 @@ function fixture(n,id){
     await waitFor(async()=>{const s=await state();return s?.running&&s.desktopCommandId!==formerRun;},15000,'new start after app restart');
     command('stop',STOP);
     await waitFor(async()=>!(await state())?.running,10000,'final stop');
+    assert.deepEqual(queued,[1,2,3],'A new run must not enqueue a cached expired URL');
     popup=await context.newPage();
     await popup.goto(`chrome-extension://${extId}/popup.html`);
     await popup.screenshot({path:path.join(OUT,'extension-popup.png'),fullPage:true});
     assert.equal(errors.length,0,errors.join('\n'));
-    fs.writeFileSync(path.join(OUT,'browser.json'),JSON.stringify({browser:await context.browser().version(),extensionVersion:'5.4.0',automaticConnection:true,pairingCodeRequired:false,manualCsvSelection:false,backgroundHeartbeat:true,explicitMedia:3,queuedEpisodes:queued,missingOnlyVisits:[1,1,2],unavailablePasses:unavailable.autoPass,cancelPreventsRefresh:true,appRestartStopsOldScan:true,restartNeedsManualReset:false,realAccountTested:false,errors},null,2));
+    fs.writeFileSync(path.join(OUT,'browser.json'),JSON.stringify({browser:await context.browser().version(),extensionVersion:'5.4.0',automaticConnection:true,pairingCodeRequired:false,manualCsvSelection:false,backgroundHeartbeat:true,explicitMedia:3,queuedEpisodes:queued,missingOnlyVisits:[1,1,2],unavailablePasses:unavailable.autoPass,cancelPreventsRefresh:true,appRestartStopsOldScan:true,restartNeedsManualReset:false,cachedMediaRefreshedOnNewStart:true,realAccountTested:false,errors},null,2));
     console.log('Offline integration passed: no-PIN connection, inbox watcher, missing-only refresh, bounded retries, cancellation.');
   }catch(error){
     if(worker)try{fs.writeFileSync(path.join(OUT,'failed-state.json'),JSON.stringify(await worker.evaluate(async()=>(await chrome.storage.local.get('dramaScannerV5Current')).dramaScannerV5Current),null,2));}catch(_){}
