@@ -25,6 +25,10 @@ USER32.EnumChildWindows.argtypes = [wintypes.HWND, CALLBACK, wintypes.LPARAM]
 USER32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 USER32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
 USER32.SendMessageW.restype = ctypes.c_ssize_t
+USER32.SendMessageTimeoutW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM, wintypes.UINT, wintypes.UINT, ctypes.POINTER(ctypes.c_size_t)]
+USER32.SendMessageTimeoutW.restype = ctypes.c_ssize_t
+USER32.SetForegroundWindow.argtypes = [wintypes.HWND]
+USER32.SetActiveWindow.argtypes = [wintypes.HWND]
 
 
 def windows(parent=None):
@@ -34,6 +38,10 @@ def windows(parent=None):
             title, cls = ctypes.create_unicode_buffer(2048), ctypes.create_unicode_buffer(256)
             USER32.GetWindowTextW(handle, title, len(title))
             USER32.GetClassNameW(handle, cls, len(cls))
+            if parent and "Button" in cls.value:
+                result = ctypes.c_size_t()
+                # Custom VCL captions are not always available through cross-process GetWindowText.
+                USER32.SendMessageTimeoutW(handle, 0x000D, len(title), ctypes.cast(title, ctypes.c_void_p).value, 0x0002, 200, ctypes.byref(result))
             result.append((handle, title.value, cls.value))
         return True
     callback = CALLBACK(visit)
@@ -51,7 +59,8 @@ def wait_for(test, label, timeout=80):
         if value:
             return value
         time.sleep(0.2)
-    raise AssertionError("Timeout: " + label + "; visible windows=" + repr(windows()))
+    details = [(title, cls, windows(handle)) for handle, title, cls in windows() if "Reel Short Downloader Top" in title]
+    raise AssertionError("Timeout: " + label + "; application controls=" + repr(details))
 
 
 def setup_window():
@@ -80,6 +89,7 @@ def main():
     process = subprocess.Popen([str(installer), "/SP-", "/NORESTART", f"/DIR={target}", f"/LOG={log}"])
     try:
         wait_for(setup_window, "installer welcome")
+        print('Installer controls:', windows(setup_window()[0]), flush=True)
         last_click = 0.0
         def advance_to_activation():
             nonlocal last_click
@@ -89,20 +99,23 @@ def main():
             installer_window = setup_window()
             if installer_window and time.monotonic() - last_click > 0.7:
                 for handle, text in buttons(installer_window[0]):
-                    if text in ("Next >", "Install"):
+                    if text in ("Next", "Next >", "Install"):
+                        USER32.SetForegroundWindow(installer_window[0])
+                        USER32.SetActiveWindow(installer_window[0])
                         # Post rather than Send: the Next handler can synchronously wait for the app.
                         USER32.PostMessageW(handle, 0x00F5, 0, 0)
                         last_click = time.monotonic()
                         break
             return None
         activation = wait_for(advance_to_activation, "interactive application activation", timeout=100)
+        print('Actual setup application opened', flush=True)
         USER32.PostMessageW(activation[0], 0x0010, 0, 0)  # WM_CLOSE; production setup returns 12.
         def retry_button():
             wizard = setup_window()
             if not wizard or activation_window():
                 return None
             controls = buttons(wizard[0])
-            assert not any("Finish" in text for _, text in controls), "Finish was reachable before activation"
+            assert not any("Finish" in text for _, text, cls in windows(wizard[0]) if "Button" in cls), "Finish was visible before activation"
             return next((handle for handle, text in controls if "Retry verification" in text), None)
         retry = wait_for(retry_button, "verification page after cancellation")
         ImageGrab.grab().save(evidence / "installer-incomplete.png")
@@ -124,6 +137,7 @@ def main():
         write_json(evidence / "installer-interactive.json", {"real_installer": True, "actual_setup_application": True, "unpaired_close_exit_code": exit_code, "finish_blocked": True, "retry_reopened_application": True, "uninstall_passed": True, "successful_edge_activation_tested": False})
     finally:
         if process.poll() is None:
+            ImageGrab.grab().save(evidence / "installer-timeout.png")
             subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], capture_output=True)
 
 

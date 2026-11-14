@@ -41,6 +41,7 @@ Filename: "{app}\{#AppExe}"; Description: "Open Reel Short Downloader Top"; Flag
 var
   ActivationVerified: Boolean;
   ActivationAttempted: Boolean;
+  ActivationInProgress: Boolean;
   VerificationPage: TWizardPage;
   VerificationText: TNewStaticText;
 
@@ -55,6 +56,7 @@ procedure InitializeWizard();
 begin
   ActivationVerified := False;
   ActivationAttempted := False;
+  ActivationInProgress := False;
   WizardForm.WelcomeLabel2.Caption :=
     'This installer includes the application, Python runtime, yt-dlp and FFmpeg.' + #13#10#13#10 +
     'After files are copied, the setup window opens. Activate the bundled extension in Microsoft Edge and pair it with the displayed code.' + #13#10#13#10 +
@@ -75,12 +77,29 @@ function RunActivation(): Boolean;
 var
   ResultCode: Integer;
 begin
+  if ActivationInProgress then
+  begin
+    Result := False;
+    Exit;
+  end;
+  ActivationInProgress := True;
   ActivationAttempted := True;
-  Result := Exec(ExpandConstant('{app}\{#AppExe}'), '--setup',
-    ExpandConstant('{app}'), SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode);
+  WizardForm.NextButton.Enabled := False;
+  WizardForm.CancelButton.Enabled := False;
+  try
+    Result := Exec(ExpandConstant('{app}\{#AppExe}'), '--setup',
+      ExpandConstant('{app}'), SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode);
+  finally
+    ActivationInProgress := False;
+    WizardForm.NextButton.Enabled := True;
+    WizardForm.CancelButton.Enabled := True;
+  end;
   ActivationVerified := Result and (ResultCode = 0);
   if ActivationVerified then
-    VerificationText.Caption := 'Runtime checks and the paired Microsoft Edge connection passed. Click Next to complete installation.'
+  begin
+    VerificationText.Caption := 'Runtime checks and the paired Microsoft Edge connection passed. Click Next to complete installation.';
+    WizardForm.NextButton.Caption := '&Next >';
+  end
   else
   begin
     VerificationText.Caption := 'Verification did not pass. Setup is incomplete. Click Retry verification to reopen the application setup window, or Cancel to exit without reporting success.';
