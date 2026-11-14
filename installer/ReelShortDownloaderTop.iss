@@ -40,41 +40,83 @@ Filename: "{app}\{#AppExe}"; Description: "Open Reel Short Downloader Top"; Flag
 [Code]
 var
   ActivationVerified: Boolean;
+  ActivationAttempted: Boolean;
+  VerificationPage: TWizardPage;
+  VerificationText: TNewStaticText;
+
+function InitializeSetup(): Boolean;
+begin
+  Result := not WizardSilent;
+  if not Result then
+    Log('Activation gate: interactive Edge verification required. No files were installed.');
+end;
 
 procedure InitializeWizard();
 begin
   ActivationVerified := False;
+  ActivationAttempted := False;
   WizardForm.WelcomeLabel2.Caption :=
     'This installer includes the application, Python runtime, yt-dlp and FFmpeg.' + #13#10#13#10 +
     'After files are copied, the setup window opens. Activate the bundled extension in Microsoft Edge and pair it with the displayed code.' + #13#10#13#10 +
     'Setup will not report success or show Finish until the runtime checks and a live Edge connection pass. Closing the setup window leaves installation incomplete.';
+  VerificationPage := CreateCustomPage(wpInstalling, 'Verify Microsoft Edge',
+    'Finish remains unavailable until every runtime check and a live Edge connection pass.');
+  VerificationText := TNewStaticText.Create(VerificationPage);
+  VerificationText.Parent := VerificationPage.Surface;
+  VerificationText.Left := 0;
+  VerificationText.Top := 0;
+  VerificationText.Width := VerificationPage.SurfaceWidth;
+  VerificationText.Height := ScaleY(160);
+  VerificationText.WordWrap := True;
+  VerificationText.Caption := 'The application setup window will open. Follow its Edge activation steps. If it is closed before verification, click Retry verification to try again, or Cancel to leave setup incomplete.';
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
+function RunActivation(): Boolean;
 var
   ResultCode: Integer;
-  Parameters: String;
 begin
-  if CurStep = ssPostInstall then
+  ActivationAttempted := True;
+  Result := Exec(ExpandConstant('{app}\{#AppExe}'), '--setup',
+    ExpandConstant('{app}'), SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode);
+  ActivationVerified := Result and (ResultCode = 0);
+  if ActivationVerified then
+    VerificationText.Caption := 'Runtime checks and the paired Microsoft Edge connection passed. Click Next to complete installation.'
+  else
   begin
-    if WizardSilent then
-      Parameters := '--verify-install --report "' + ExpandConstant('{localappdata}\ReelShortDownloaderTop\installer-readiness.json') + '"'
-    else
-      Parameters := '--setup';
-    WizardForm.StatusLabel.Caption := 'Checking the runtime and waiting for Microsoft Edge activation...';
-    if not Exec(ExpandConstant('{app}\{#AppExe}'), Parameters, ExpandConstant('{app}'), SW_SHOWNORMAL, ewWaitUntilTerminated, ResultCode) then
-      RaiseException('Readiness verification could not start. Setup is incomplete.');
-    if ResultCode <> 0 then
-      RaiseException('Readiness verification did not pass (code ' + IntToStr(ResultCode) + '). Setup is incomplete. Re-run the interactive installer to finish activation.');
-    ActivationVerified := True;
+    VerificationText.Caption := 'Verification did not pass. Setup is incomplete. Click Retry verification to reopen the application setup window, or Cancel to exit without reporting success.';
+    WizardForm.NextButton.Caption := 'Retry verification >';
+  end;
+  Result := ActivationVerified;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = VerificationPage.ID then
+  begin
+    WizardForm.BackButton.Enabled := False;
+    if not ActivationAttempted then RunActivation();
   end;
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  if CurPageID = VerificationPage.ID then
+  begin
+    if not ActivationVerified then RunActivation();
+    Result := ActivationVerified;
+  end;
   if CurPageID = wpFinished then
     Result := ActivationVerified;
+end;
+
+procedure CancelButtonClick(CurPageID: Integer; var Cancel, Confirm: Boolean);
+begin
+  if (CurPageID = VerificationPage.ID) and not ActivationVerified then
+  begin
+    Cancel := True;
+    Confirm := False;
+  end;
 end;
 
 function GetCustomSetupExitCode(): Integer;
