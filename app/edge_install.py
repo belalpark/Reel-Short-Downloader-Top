@@ -16,8 +16,12 @@ def _normal(text):
 
 def _named(window, names, ids=()):
     wanted = {_normal(n) for n in names}
-    for item in window.descendants():
-        if _normal(item.element_info.name) in wanted or item.element_info.automation_id in ids:
+    controls = window.descendants()
+    for item in controls:
+        if item.element_info.automation_id in ids:
+            return item
+    for item in controls:
+        if _normal(item.element_info.name) in wanted:
             return item
     return None
 
@@ -55,6 +59,15 @@ def install_unpacked(folder: Path, emit=lambda _: None, profile: Path | None = N
     if target is None:
         raise OSError("لم تظهر نافذة الملحقات؛ أكمل نافذة Edge الظاهرة ثم أعد المحاولة.")
     target.set_focus()
+    # Edge can replace an internal command-line URL with New tab. Navigate the
+    # visible address bar as the user would; keep the existing profile/session.
+    address = _named(target, ("Address and search bar", "شريط العناوين والبحث", "شريط العنوان والبحث"), ("view_1017",))
+    if address is not None:
+        address.set_edit_text("edge://extensions/")
+        address.type_keys("{ENTER}")
+    else:
+        target.type_keys("^l")
+        target.type_keys("edge://extensions/{ENTER}", with_spaces=True)
     developer = None
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:

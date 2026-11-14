@@ -24,7 +24,7 @@ function fixture(n,id){
   const movie=fs.readFileSync(path.join(__dirname,'fixture.webm.b64'),'utf8').trim();
   return `<!doctype html><html><head><title>Offline Test Series | ReelShort</title></head><body>
   <script id="__NEXT_DATA__" type="application/json">${JSON.stringify(metadata)}</script>
-  <h1>Offline episode ${n}</h1><video muted autoplay loop playsinline src="data:video/webm;base64,${movie}"></video>
+  <h1>Offline episode ${n}</h1><video muted loop playsinline src="data:video/webm;base64,${movie}"></video>
   ${Array.from({length:total},(_,i)=>`<a href="${pageURL(i+1,id)}">Episode ${i+1}</a>`).join(' ')}
   </body></html>`;
 }
@@ -76,7 +76,7 @@ function fixture(n,id){
     });
     const reel=await context.newPage();
     await reel.goto(pageURL(1));
-    await reel.waitForFunction(()=>document.querySelector('video').currentTime>0.2);
+    assert.equal(await reel.locator('video').evaluate(video=>video.paused),true);
     command('start',ID);
     await waitFor(async()=>{const s=await state();return s?.seriesId===ID&&s.finished;},150000,'automatic scan and missing-only refresh');
     const scan=await state();

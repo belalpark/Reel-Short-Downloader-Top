@@ -115,6 +115,10 @@
     };
     state.note=`الحلقة ${episode}: انتظار تقدم تشغيل الفيديو (حد أقصى ${Math.round((state.waitMs||9000)/1000)} ثوانٍ)`;
     await persist(state);
+    if(state.autoMode){
+      const player=document.querySelector('video');
+      if(player?.paused)try{player.play()?.catch(()=>{});}catch(_){}
+    }
     const result=await P.waitForPlayback(()=>document.querySelector('video'),{
       timeoutMs:state.waitMs||9000,pollMs:250,
       cancelled:()=>cancelled||!ownSeries(state.seriesId)||C.episodeNumber(location.href)!==episode
