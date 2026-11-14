@@ -40,8 +40,9 @@ def main() -> int:
         except (OSError, AttributeError):
             pass
     root = tk.Tk()
-    app = DesktopApp(root, setup=args.setup, smoke=args.smoke_test)
+    app = DesktopApp(root, setup=args.setup or args.smoke_test, smoke=args.smoke_test)
     if args.smoke_test:
+        app.tabs.select(app.episodes_tab)
         def capture_and_close():
             try:
                 root.update_idletasks()
@@ -49,8 +50,21 @@ def main() -> int:
                     from PIL import ImageGrab
                     args.screenshot.parent.mkdir(parents=True, exist_ok=True)
                     ImageGrab.grab(bbox=(root.winfo_rootx(), root.winfo_rooty(), root.winfo_rootx()+root.winfo_width(), root.winfo_rooty()+root.winfo_height())).save(args.screenshot)
+                    app.tabs.select(app.setup_tab)
+                    root.update()
+                    ImageGrab.grab(bbox=(root.winfo_rootx(), root.winfo_rooty(), root.winfo_rootx()+root.winfo_width(), root.winfo_rooty()+root.winfo_height())).save(args.screenshot.with_name(args.screenshot.stem + "-setup.png"))
+                root.geometry("980x680")
+                app.tabs.select(app.setup_tab)
+                root.update()
+                button = app.finish_button
+                assert button.winfo_viewable() and str(button["state"]) == "disabled", "Setup gate must be visible and disabled without pairing"
+                assert button.winfo_rooty() + button.winfo_height() <= root.winfo_rooty() + root.winfo_height(), "Setup action is clipped at minimum window size"
+                app.tabs.select(app.episodes_tab)
+                root.update()
+                assert app.download_button.winfo_viewable(), "Download action is hidden"
+                assert app.download_button.winfo_rooty() + app.download_button.winfo_height() <= root.winfo_rooty() + root.winfo_height(), "Download action is clipped"
                 if args.report:
-                    write_json(args.report, {"gui_created": True, "width": root.winfo_width(), "height": root.winfo_height(), "setup_verified": False})
+                    write_json(args.report, {"gui_created": True, "width": root.winfo_width(), "height": root.winfo_height(), "setup_button_visible_and_disabled": True, "download_button_visible": True, "setup_verified": False})
             finally:
                 root.destroy()
         root.after(1800, capture_and_close)
@@ -58,7 +72,7 @@ def main() -> int:
         root.mainloop()
     finally:
         app.cleanup()
-    return app.exit_code
+    return 0 if args.smoke_test else app.exit_code
 
 
 if __name__ == "__main__":

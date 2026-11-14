@@ -34,7 +34,9 @@ class DesktopApp:
         self.destination = downloads_root()
         self.downloads = DownloadQueue(bundle_root(), data_root() / "last_session.json", self.events.put)
         root.title("Reel Short Downloader Top" + (" — الإعداد" if setup else ""))
-        root.geometry("1160x800")
+        width = max(980, min(1160, root.winfo_screenwidth() - 60))
+        height = max(680, min(800, root.winfo_screenheight() - 100))
+        root.geometry(f"{width}x{height}")
         root.minsize(980, 680)
         root.configure(bg=BG)
         root.protocol("WM_DELETE_WINDOW", self.close)
@@ -52,12 +54,13 @@ class DesktopApp:
         style.configure("Treeview.Heading", background="#E8EEF7", foreground=NAVY, font=("Segoe UI", 10, "bold"), padding=8)
         style.map("Treeview", background=[("selected", "#DBEAFE")], foreground=[("selected", NAVY)])
 
-        header = tk.Frame(root, bg=NAVY, padx=28, pady=22)
+        header = tk.Frame(root, bg=NAVY, padx=24, pady=14)
         header.pack(fill="x")
-        tk.Label(header, text="REEL SHORT", bg=NAVY, fg="white", font=("Segoe UI", 22, "bold")).pack(anchor="w")
-        tk.Label(header, text="DOWNLOADER TOP", bg=NAVY, fg="#A9C6FF", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        tk.Label(header, text="مساحة واحدة للفهرسة والتنزيل وإعداد الإضافة", bg=NAVY, fg="#E0E7F3", font=("Segoe UI", 12)).pack(anchor="e")
-        body = ttk.Frame(root, padding=(24, 18))
+        header.columnconfigure(1, weight=1)
+        tk.Label(header, text="REEL SHORT", bg=NAVY, fg="white", font=("Segoe UI", 22, "bold")).grid(row=0, column=0, sticky="w")
+        tk.Label(header, text="DOWNLOADER TOP", bg=NAVY, fg="#A9C6FF", font=("Segoe UI", 10, "bold")).grid(row=1, column=0, sticky="w")
+        tk.Label(header, text="مساحة واحدة للفهرسة والتنزيل وإعداد الإضافة", bg=NAVY, fg="#E0E7F3", font=("Segoe UI", 12)).grid(row=0, column=1, rowspan=2, sticky="e")
+        body = ttk.Frame(root, padding=(20, 12))
         body.pack(fill="both", expand=True)
         self.connection = tk.StringVar(value="الإضافة غير متصلة")
         bar = ttk.Frame(body)
@@ -127,6 +130,13 @@ class DesktopApp:
         self._button(row, "فتح مجلد التنزيلات", lambda: self.open_folder(self.destination)).pack(side="left")
         self.progress = ttk.Progressbar(frame, maximum=100)
         self.progress.pack(fill="x", pady=(12, 0))
+        # Reserve bottom actions first, allowing only the scrollable table to shrink.
+        for widget in (table_frame, output, row, self.progress):
+            widget.pack_forget()
+        self.progress.pack(side="bottom", fill="x", pady=(12, 0))
+        row.pack(side="bottom", fill="x")
+        output.pack(side="bottom", fill="x", pady=12)
+        table_frame.pack(fill="both", expand=True)
 
     def _setup_page(self):
         frame = self.setup_tab
@@ -144,19 +154,25 @@ class DesktopApp:
         ttk.Label(code_row, textvariable=self.code, font=("Consolas", 24, "bold"), foreground=BLUE).pack(side="right")
         ttk.Label(code_row, text="رمز الربط • صالح لخمس دقائق   ", foreground=MUTED).pack(side="right")
         self._button(code_row, "نسخ الرمز", lambda: self.copy(self.code.get())).pack(side="left")
-        self.check_table = ttk.Treeview(frame, columns=("detail", "result", "name"), show="headings", height=5, selectmode="none")
+        check_container = ttk.Frame(frame)
+        self.check_table = ttk.Treeview(check_container, columns=("detail", "result", "name"), show="headings", height=5, selectmode="none")
         for key, text, width in (("detail", "التفاصيل", 600), ("result", "النتيجة", 100), ("name", "المتطلب", 180)):
             self.check_table.heading(key, text=text)
             self.check_table.column(key, width=width, anchor="e")
-        self.check_table.pack(fill="both", expand=True, pady=6)
+        check_scroll = ttk.Scrollbar(check_container, orient="vertical", command=self.check_table.yview)
+        self.check_table.configure(yscrollcommand=check_scroll.set)
+        self.check_table.pack(side="left", fill="both", expand=True)
+        check_scroll.pack(side="right", fill="y")
         end = ttk.Frame(frame)
-        end.pack(fill="x", pady=(8, 0))
         self._button(end, "إعادة فحص المتطلبات", self.recheck).pack(side="left")
         if self.setup:
             self.finish_button = self._button(end, "إتمام الإعداد بعد التحقق", self.finish_setup, True)
             self.finish_button.pack(side="right")
             self.finish_button.configure(state="disabled")
-        ttk.Label(frame, text="إذا أوقف Edge الإضافة، فعّلها من صفحة الإضافات ثم أعد فتح نافذتها. يلزم الاتصال الحالي للتحقق.", anchor="e", foreground=MUTED, wraplength=980).pack(fill="x", pady=(8, 0))
+        hint = ttk.Label(frame, text="إذا أوقف Edge الإضافة، فعّلها من صفحة الإضافات ثم أعد فتح نافذتها. يلزم الاتصال الحالي للتحقق.", anchor="e", foreground=MUTED, wraplength=920)
+        hint.pack(side="bottom", fill="x", pady=(8, 0))
+        end.pack(side="bottom", fill="x", pady=(8, 0))
+        check_container.pack(fill="both", expand=True, pady=6)
 
     def _logs_page(self):
         ttk.Label(self.logs_tab, text="سجل محلي دون عرض روابط الوصول", font=("Segoe UI", 18, "bold"), anchor="e").pack(fill="x", pady=(0, 12))

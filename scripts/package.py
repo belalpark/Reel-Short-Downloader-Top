@@ -35,7 +35,9 @@ def copy_runtime_licenses(target: Path):
     for name in ("tcl8.6", "tk8.6"):
         license_path = tcl_root / name / "license.terms"
         if not license_path.is_file():
-            raise RuntimeError(name + " license is missing")
+            license_path = ROOT / "third_party" / (name + "-license.terms")
+        if not license_path.is_file():
+            raise RuntimeError(name + " license is missing from both the runtime and the source package")
         shutil.copy2(license_path, folder / (name + "-license.terms"))
 
 
