@@ -41,6 +41,13 @@ with tempfile.TemporaryDirectory() as name:
     try:
         for line in sys.stdin:
             request = json.loads(line)
+            if request['command'] == 'restart':
+                auto.stop()
+                bridge.close()
+                bridge = ObservableBridge(root / 'connection.json', inbox=root / 'Inbox')
+                bridge.start()
+                print(json.dumps({'bridge_restarted': True}), flush=True)
+                continue
             if request['command'] == 'start':
                 auto.stop()
                 command = bridge.command('start', request['series_id'])

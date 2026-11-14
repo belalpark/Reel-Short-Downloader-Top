@@ -32,7 +32,7 @@ function fixture(n,id){
   fs.mkdirSync(OUT,{recursive:true});
   const profile=fs.mkdtempSync(path.join(OUT,'profile-'));
   let context,child,worker;
-  const queued=[],errors=[];let authenticatedHeartbeats=0;
+  const queued=[],errors=[];let authenticatedHeartbeats=0,bridgeRestarts=0;
   try{
     child=spawn(process.env.PYTHON||(process.platform==='win32'?'python':'python3'),['-m','scripts.bridge_fixture'],{cwd:ROOT,stdio:['pipe','pipe','inherit']});
     const lines=readline.createInterface({input:child.stdout});
@@ -41,6 +41,7 @@ function fixture(n,id){
     lines.on('line',line=>{
       const value=JSON.parse(line);
       if(value.authenticated_heartbeat)authenticatedHeartbeats++;
+      if(value.bridge_restarted)bridgeRestarts++;
       if(value.queued)queued.push(...value.queued);
     });
     context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,args:[`--disable-extensions-except=${settings.extension_path}`,`--load-extension=${settings.extension_path}`]});
@@ -107,11 +108,25 @@ function fixture(n,id){
     const beforeStop=visits.get(STOP+'/1');
     await delay(11000);
     assert.equal(visits.get(STOP+'/1'),beforeStop);
+    // A restarted app must cancel the former scan and accept a new start without a manual reset.
+    command('start',STOP);
+    await waitFor(async()=>{const s=await state();return s?.seriesId===STOP&&s.running&&s.autoPass===2;},60000,'scan before app restart');
+    const formerRun=(await state()).desktopCommandId;
+    const beforeRestart=visits.get(STOP+'/1');
+    command('restart',STOP);
+    await waitFor(()=>bridgeRestarts===1,15000,'same-port app restart');
+    await waitFor(async()=>!(await state())?.running,15000,'former scan cancelled after restart');
+    await delay(11000);
+    assert.equal(visits.get(STOP+'/1'),beforeRestart);
+    command('start',STOP);
+    await waitFor(async()=>{const s=await state();return s?.running&&s.desktopCommandId!==formerRun;},15000,'new start after app restart');
+    command('stop',STOP);
+    await waitFor(async()=>!(await state())?.running,10000,'final stop');
     popup=await context.newPage();
     await popup.goto(`chrome-extension://${extId}/popup.html`);
     await popup.screenshot({path:path.join(OUT,'extension-popup.png'),fullPage:true});
     assert.equal(errors.length,0,errors.join('\n'));
-    fs.writeFileSync(path.join(OUT,'browser.json'),JSON.stringify({browser:await context.browser().version(),extensionVersion:'5.4.0',automaticConnection:true,pairingCodeRequired:false,manualCsvSelection:false,backgroundHeartbeat:true,explicitMedia:3,queuedEpisodes:queued,missingOnlyVisits:[1,1,2],unavailablePasses:unavailable.autoPass,cancelPreventsRefresh:true,realAccountTested:false,errors},null,2));
+    fs.writeFileSync(path.join(OUT,'browser.json'),JSON.stringify({browser:await context.browser().version(),extensionVersion:'5.4.0',automaticConnection:true,pairingCodeRequired:false,manualCsvSelection:false,backgroundHeartbeat:true,explicitMedia:3,queuedEpisodes:queued,missingOnlyVisits:[1,1,2],unavailablePasses:unavailable.autoPass,cancelPreventsRefresh:true,appRestartStopsOldScan:true,restartNeedsManualReset:false,realAccountTested:false,errors},null,2));
     console.log('Offline integration passed: no-PIN connection, inbox watcher, missing-only refresh, bounded retries, cancellation.');
   }catch(error){
     if(worker)try{fs.writeFileSync(path.join(OUT,'failed-state.json'),JSON.stringify(await worker.evaluate(async()=>(await chrome.storage.local.get('dramaScannerV5Current')).dramaScannerV5Current),null,2));}catch(_){}

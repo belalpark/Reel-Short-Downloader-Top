@@ -440,7 +440,12 @@
     if (message?.type === 'DRAMA_STOP') {
       cancelled=true;
       load().then(async state => {
-        if (state && state.owner === token()) {pause(state,'توقف يدويًا. افتح الحلقة المطلوبة لاستئناف الفحص.');await persist(state);}
+        if (state && (state.owner === token() || message.autoMode)) {pause(state,message.autoMode?'توقف الفحص. يمكنك بدء التنزيل مجددًا من التطبيق.':'توقف يدويًا. افتح الحلقة المطلوبة لاستئناف الفحص.');await persist(state);}
+        if(message.autoMode){
+          const until=Date.now()+7500;
+          while(busy&&Date.now()<until)await sleep(50);
+          if(busy){respond({ok:false,error:'جارٍ إنهاء الفحص السابق؛ أعد المحاولة بعد لحظات.'});return;}
+        }
         respond({ok:true});
       });
       return true;

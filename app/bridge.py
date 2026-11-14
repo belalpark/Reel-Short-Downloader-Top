@@ -109,6 +109,7 @@ class Bridge:
             if path == "/pair":
                 reply["token"] = self.token
             if path == "/exchange":
+                reply["runId"] = self.active_run_id
                 page = str(body.get("pageUrl", ""))[:4096]
                 if page.startswith("https://www.reelshort.com/"):
                     self.active_page = page

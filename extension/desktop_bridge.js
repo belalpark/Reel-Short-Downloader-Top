@@ -49,6 +49,12 @@
     try{
       const response=await post('/exchange',{pageUrl});failures=0;
       const command=response.command;
+      const previous=(await chrome.storage.local.get(STORE))[STORE];
+      if(previous?.running&&previous.autoMode&&previous.desktopCommandId!==response.runId){
+        const stopped=await chrome.tabs.sendMessage(target.id,{type:'DRAMA_STOP',autoMode:true});
+        if(!stopped?.ok)throw Error(stopped?.error||'تعذر إيقاف جلسة الفحص القديمة');
+        await chrome.storage.session.remove('desktopOwnerTab');
+      }
       if(command){
         const type=command.kind==='stop'?'DRAMA_STOP':'DRAMA_START';
         const result=await chrome.tabs.sendMessage(target.id,{type,includePaid:true,waitMs:7000,autoMode:true,maxPasses:3,desktopCommandId:command.id});
