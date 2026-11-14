@@ -34,10 +34,18 @@ class DesktopApp:
         self.destination = downloads_root()
         self.downloads = DownloadQueue(bundle_root(), data_root() / "last_session.json", self.events.put)
         root.title("Reel Short Downloader Top" + (" — الإعداد" if setup else ""))
-        width = max(980, min(1160, root.winfo_screenwidth() - 60))
-        height = max(680, min(800, root.winfo_screenheight() - 100))
-        root.geometry(f"{width}x{height}")
-        root.minsize(980, 680)
+        left, top, right, bottom = 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+            area = wintypes.RECT()
+            if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(area), 0):
+                left, top, right, bottom = area.left, area.top, area.right, area.bottom
+        self.work_area = (left, top, right, bottom)
+        width = max(980, min(1160, right - left - 40))
+        height = max(600, min(800, bottom - top - 70))
+        root.geometry(f"{width}x{height}+{left+16}+{top+10}")
+        root.minsize(980, 600)
         root.configure(bg=BG)
         root.protocol("WM_DELETE_WINDOW", self.close)
         style = ttk.Style(root)
@@ -45,32 +53,34 @@ class DesktopApp:
         style.configure("TFrame", background=BG)
         style.configure("TLabel", background=BG, foreground=NAVY, font=("Segoe UI", 11))
         style.configure("Card.TFrame", background="white")
-        style.configure("TButton", font=("Segoe UI", 10), padding=(14, 10), borderwidth=0)
+        style.configure("TButton", font=("Segoe UI", 10), padding=(12, 8), borderwidth=0, background="#E6EDF7", foreground=NAVY)
+        style.map("TButton", background=[("active", "#D8E5F8"), ("disabled", "#EDF1F6")])
         style.configure("Primary.TButton", background=BLUE, foreground="white")
         style.map("Primary.TButton", background=[("disabled", "#CBD5E1"), ("active", "#1D4ED8")])
         style.configure("TNotebook", background=BG, borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(24, 12), font=("Segoe UI", 11))
+        style.configure("TNotebook.Tab", padding=(18, 7), font=("Segoe UI", 11), background="#E6EDF7", foreground=NAVY)
+        style.map("TNotebook.Tab", background=[("selected", "#FFFFFF"), ("active", "#D8E5F8")])
         style.configure("Treeview", background="white", fieldbackground="white", foreground=NAVY, font=("Segoe UI", 10), rowheight=35, borderwidth=0)
         style.configure("Treeview.Heading", background="#E8EEF7", foreground=NAVY, font=("Segoe UI", 10, "bold"), padding=8)
         style.map("Treeview", background=[("selected", "#DBEAFE")], foreground=[("selected", NAVY)])
 
-        header = tk.Frame(root, bg=NAVY, padx=24, pady=14)
+        header = tk.Frame(root, bg=NAVY, padx=24, pady=8)
         header.pack(fill="x")
         header.columnconfigure(1, weight=1)
-        tk.Label(header, text="REEL SHORT", bg=NAVY, fg="white", font=("Segoe UI", 22, "bold")).grid(row=0, column=0, sticky="w")
-        tk.Label(header, text="DOWNLOADER TOP", bg=NAVY, fg="#A9C6FF", font=("Segoe UI", 10, "bold")).grid(row=1, column=0, sticky="w")
+        tk.Label(header, text="REEL SHORT", bg=NAVY, fg="white", font=("Segoe UI", 20, "bold")).grid(row=0, column=0, sticky="w")
+        tk.Label(header, text="DOWNLOADER TOP", bg=NAVY, fg="#A9C6FF", font=("Segoe UI", 9, "bold")).grid(row=1, column=0, sticky="w")
         tk.Label(header, text="مساحة واحدة للفهرسة والتنزيل وإعداد الإضافة", bg=NAVY, fg="#E0E7F3", font=("Segoe UI", 12)).grid(row=0, column=1, rowspan=2, sticky="e")
         body = ttk.Frame(root, padding=(20, 12))
         body.pack(fill="both", expand=True)
         self.connection = tk.StringVar(value="الإضافة غير متصلة")
         bar = ttk.Frame(body)
-        bar.pack(fill="x", pady=(0, 16))
+        bar.pack(fill="x", pady=(0, 8))
         ttk.Label(bar, text=f"v{VERSION}  •  Windows", foreground=MUTED).pack(side="left")
         self.connection_label = ttk.Label(bar, textvariable=self.connection, foreground=MUTED)
         self.connection_label.pack(side="right")
         self.tabs = ttk.Notebook(body)
         self.tabs.pack(fill="both", expand=True)
-        self.episodes_tab, self.setup_tab, self.logs_tab = [ttk.Frame(self.tabs, padding=18) for _ in range(3)]
+        self.episodes_tab, self.setup_tab, self.logs_tab = [ttk.Frame(self.tabs, padding=12) for _ in range(3)]
         self.tabs.add(self.episodes_tab, text="الحلقات والتنزيل")
         self.tabs.add(self.setup_tab, text="إعداد Microsoft Edge")
         self.tabs.add(self.logs_tab, text="سجل العمليات")
@@ -78,7 +88,7 @@ class DesktopApp:
         self._setup_page()
         self._logs_page()
         self.footer = tk.StringVar(value="اختر ملف فهرس الحلقات للبدء.")
-        ttk.Label(body, textvariable=self.footer, foreground=MUTED, anchor="e", wraplength=1000).pack(fill="x", pady=(14, 0))
+        ttk.Label(body, textvariable=self.footer, foreground=MUTED, anchor="e", wraplength=1000).pack(fill="x", pady=(8, 0))
         if not smoke:
             try:
                 self.bridge = Bridge(data_root() / "connection.json")
@@ -98,11 +108,11 @@ class DesktopApp:
 
     def _episodes_page(self):
         frame = self.episodes_tab
-        ttk.Label(frame, text="مكتبة الحلقات", font=("Segoe UI", 20, "bold"), anchor="e").pack(fill="x")
+        ttk.Label(frame, text="مكتبة الحلقات", font=("Segoe UI", 18, "bold"), anchor="e").pack(fill="x")
         self.summary = tk.StringVar(value="لم يُحدد فهرس بعد")
-        ttk.Label(frame, textvariable=self.summary, anchor="e", foreground=MUTED, wraplength=980).pack(fill="x", pady=(6, 14))
+        ttk.Label(frame, textvariable=self.summary, anchor="e", foreground=MUTED, wraplength=980).pack(fill="x", pady=(4, 10))
         actions = ttk.Frame(frame)
-        actions.pack(fill="x", pady=(0, 12))
+        actions.pack(fill="x", pady=(0, 8))
         self._button(actions, "فتح ReelShort في Edge", lambda: self._guard(lambda: open_edge("https://www.reelshort.com/"))).pack(side="left")
         self.import_button = self._button(actions, "اختيار فهرس CSV", self.import_csv, True)
         self.import_button.pack(side="right")
@@ -133,9 +143,9 @@ class DesktopApp:
         # Reserve bottom actions first, allowing only the scrollable table to shrink.
         for widget in (table_frame, output, row, self.progress):
             widget.pack_forget()
-        self.progress.pack(side="bottom", fill="x", pady=(12, 0))
+        self.progress.pack(side="bottom", fill="x", pady=(8, 0))
         row.pack(side="bottom", fill="x")
-        output.pack(side="bottom", fill="x", pady=12)
+        output.pack(side="bottom", fill="x", pady=8)
         table_frame.pack(fill="both", expand=True)
 
     def _setup_page(self):
@@ -151,7 +161,7 @@ class DesktopApp:
         code_row = ttk.Frame(frame)
         code_row.pack(fill="x", pady=8)
         self.code = tk.StringVar(value="—")
-        ttk.Label(code_row, textvariable=self.code, font=("Consolas", 24, "bold"), foreground=BLUE).pack(side="right")
+        ttk.Label(code_row, textvariable=self.code, font=("Consolas", 20, "bold"), foreground=BLUE).pack(side="right")
         ttk.Label(code_row, text="رمز الربط • صالح لخمس دقائق   ", foreground=MUTED).pack(side="right")
         self._button(code_row, "نسخ الرمز", lambda: self.copy(self.code.get())).pack(side="left")
         check_container = ttk.Frame(frame)

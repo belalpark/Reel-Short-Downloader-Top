@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import time
 
 from app.paths import write_json
 from app.runtime import check_runtime
@@ -43,7 +44,11 @@ def main() -> int:
     app = DesktopApp(root, setup=args.setup or args.smoke_test, smoke=args.smoke_test)
     if args.smoke_test:
         app.tabs.select(app.episodes_tab)
+        smoke_deadline = time.monotonic() + 30
         def capture_and_close():
+            if app.checking and time.monotonic() < smoke_deadline:
+                root.after(200, capture_and_close)
+                return
             try:
                 root.update_idletasks()
                 if args.screenshot:
@@ -53,7 +58,7 @@ def main() -> int:
                     app.tabs.select(app.setup_tab)
                     root.update()
                     ImageGrab.grab(bbox=(root.winfo_rootx(), root.winfo_rooty(), root.winfo_rootx()+root.winfo_width(), root.winfo_rooty()+root.winfo_height())).save(args.screenshot.with_name(args.screenshot.stem + "-setup.png"))
-                root.geometry("980x680")
+                root.geometry("980x600")
                 app.tabs.select(app.setup_tab)
                 root.update()
                 button = app.finish_button
@@ -64,7 +69,7 @@ def main() -> int:
                 assert app.download_button.winfo_viewable(), "Download action is hidden"
                 assert app.download_button.winfo_rooty() + app.download_button.winfo_height() <= root.winfo_rooty() + root.winfo_height(), "Download action is clipped"
                 if args.report:
-                    write_json(args.report, {"gui_created": True, "width": root.winfo_width(), "height": root.winfo_height(), "setup_button_visible_and_disabled": True, "download_button_visible": True, "setup_verified": False})
+                    write_json(args.report, {"gui_created": True, "width": root.winfo_width(), "height": root.winfo_height(), "work_area": app.work_area, "setup_button_visible_and_disabled": True, "download_button_visible": True, "runtime_checks_completed": not app.checking, "setup_verified": False})
             finally:
                 root.destroy()
         root.after(1800, capture_and_close)
