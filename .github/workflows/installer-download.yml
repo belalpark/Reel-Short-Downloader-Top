@@ -1,0 +1,62 @@
+name: Prepare verified installer download
+
+on:
+  workflow_run:
+    workflows: ['Test and build Windows']
+    types: [completed]
+  push:
+    branches: [main]
+    paths: ['.github/workflows/installer-download.yml']
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  installer:
+    if: github.event_name == 'push' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    env:
+      # Bootstrap delivery of the already verified 0.2.0 build. Later workflow_run
+      # events always use that event's successful build, never the bootstrap ID.
+      SOURCE_RUN: ${{ github.event.workflow_run.id || '43645606479' }}
+      SOURCE_COMMIT: ${{ github.event.workflow_run.head_sha || '749340166ecbab684777f352ee963be69d9cd609' }}
+    steps:
+      - name: Download the successful build
+        uses: actions/download-artifact@v4
+        with:
+          name: ReelShortDownloaderTop-Windows-x64
+          path: verified
+          run-id: ${{ env.SOURCE_RUN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify every original checksum and select only the installer
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          import shutil
+          source, target = Path('verified'), Path('installer')
+          target.mkdir()
+          lines = (source / 'SHA256SUMS.txt').read_text(encoding='utf-8-sig').splitlines()
+          verified = {}
+          for line in lines:
+              digest, name = line.split(maxsplit=1)
+              path = source / name.strip()
+              assert path.parent == source and path.is_file(), name
+              actual = hashlib.file_digest(path.open('rb'), 'sha256').hexdigest()
+              assert actual == digest, name
+              verified[path.name] = digest
+          installers = [p for p in source.glob('*Setup*.exe') if p.name in verified]
+          assert len(installers) == 1, installers
+          setup = installers[0]
+          shutil.copy2(setup, target / setup.name)
+          (target / 'SHA256SUMS.txt').write_text(verified[setup.name] + '  ' + setup.name + '\n')
+          (target / 'provenance.json').write_text(json.dumps({'source_run': int(os.environ['SOURCE_RUN']), 'source_commit': os.environ['SOURCE_COMMIT'], 'original_checksums_verified': True, 'installer_sha256': verified[setup.name], 'installer_size': setup.stat().st_size}, indent=2))
+          print(json.dumps({'installer': setup.name, 'sha256': verified[setup.name], 'size': setup.stat().st_size}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ReelShortDownloaderTop-Installer-only
+          path: installer/
+          compression-level: 0
+          retention-days: 30
