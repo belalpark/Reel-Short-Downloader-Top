@@ -1,0 +1,113 @@
+{
+  "date": "2026-11-14",
+  "source_commit": "e404febc9beeef9a4c8a740101f04772883c7fbf",
+  "workflow_run": 43605513042,
+  "workflow_url": "https://github.com/belalpark/Reel-Short-Downloader-Top/actions/runs/43605513042",
+  "workflow_conclusion": "success",
+  "unit_tests": {
+    "python": 25,
+    "javascript": 10,
+    "operating_systems": [
+      "ubuntu-24.04",
+      "windows-2022"
+    ]
+  },
+  "browser": {
+    "browser": "141.0.7390.37",
+    "extensionVersion": "5.3.1",
+    "offlinePlaybackEpisodes": 3,
+    "explicitMedia": 2,
+    "migrationEpisodes": 45,
+    "migrationMedia": 8,
+    "backgroundHeartbeat": true,
+    "pairing": "production bridge with Chromium; does not satisfy Edge gate",
+    "errors": []
+  },
+  "gui": {
+    "gui_created": true,
+    "width": 980,
+    "height": 600,
+    "work_area": [
+      0,
+      0,
+      1024,
+      728
+    ],
+    "setup_button_visible_and_disabled": true,
+    "download_button_visible": true,
+    "runtime_checks_completed": true,
+    "setup_verified": false
+  },
+  "download": {
+    "actual_ytdlp": true,
+    "actual_ffprobe": true,
+    "first_download": "passed",
+    "repeat_download": "passed",
+    "fixture_sha256": "f17b15b9d78c31f3441df0f78dd4ba2b81303e6ab91332f56bec24e45ca399ad",
+    "account_tested": false
+  },
+  "installer_negative": {
+    "activationRejected": true,
+    "exitCode": 1,
+    "installedFilesPresent": false,
+    "packagedReadinessExitCode": 12
+  },
+  "installer_interactive": {
+    "real_installer": true,
+    "actual_setup_application": true,
+    "unpaired_close_exit_code": 12,
+    "finish_blocked": true,
+    "retry_reopened_application": true,
+    "uninstall_passed": true,
+    "successful_edge_activation_tested": false
+  },
+  "installer_build": {
+    "filename": "ReelShortDownloaderTop-Setup-0.1.0-win-x64.exe",
+    "bytes": 87997158,
+    "sha256": "78b359c58fa8864c3ff03f71a31bcd19bb4af69f39637abc459b18a02c353642",
+    "source_commit": "e404febc9beeef9a4c8a740101f04772883c7fbf",
+    "workflow_run": 43605513042
+  },
+  "runtime_checks": [
+    {
+      "name": "Windows 10/11 x64",
+      "ok": true,
+      "detail": "Windows-2022Server-10.0.20348-SP0"
+    },
+    {
+      "name": "Microsoft Edge",
+      "ok": true,
+      "detail": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+    },
+    {
+      "name": "Package integrity",
+      "ok": true,
+      "detail": "1246 files verified"
+    },
+    {
+      "name": "yt-dlp",
+      "ok": true,
+      "detail": "2026.10.26"
+    },
+    {
+      "name": "ffmpeg",
+      "ok": true,
+      "detail": "ffmpeg version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2000-2026 the FFmpeg developers"
+    },
+    {
+      "name": "ffprobe",
+      "ok": true,
+      "detail": "ffprobe version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2007-2026 the FFmpeg developers"
+    },
+    {
+      "name": "User data",
+      "ok": true,
+      "detail": "C:\\Users\\runneradmin\\AppData\\Local\\ReelShortDownloaderTop"
+    },
+    {
+      "name": "Downloads",
+      "ok": true,
+      "detail": "C:\\Users\\runneradmin\\Downloads\\Reel Short Downloader Top"
+    }
+  ]
+}
