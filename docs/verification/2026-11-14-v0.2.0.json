@@ -1,0 +1,157 @@
+{
+  "date": "2026-11-14",
+  "app_version": "0.2.0",
+  "extension_version": "5.4.0",
+  "source_commit": "2b205e23f455cdcae54b655493474815763b5aa9",
+  "source_tree": "24eef5bd4ac8fe85bdce9e6688eb72f3562f043c",
+  "workflow_run": 43648092517,
+  "workflow_url": "https://github.com/belalpark/Reel-Short-Downloader-Top/actions/runs/43648092517",
+  "workflow_conclusion": "success",
+  "uploaded_source_tree_matches_local": true,
+  "unit_tests": {
+    "python": 41,
+    "javascript": 12,
+    "operating_systems": [
+      "ubuntu-24.04",
+      "windows-2022"
+    ]
+  },
+  "browser": {
+    "browser": "141.0.7390.37",
+    "extensionVersion": "5.4.0",
+    "automaticConnection": true,
+    "pairingCodeRequired": false,
+    "manualCsvSelection": false,
+    "backgroundHeartbeat": true,
+    "explicitMedia": 3,
+    "queuedEpisodes": [
+      1,
+      2,
+      3
+    ],
+    "missingOnlyVisits": [
+      1,
+      1,
+      2
+    ],
+    "unavailablePasses": 3,
+    "cancelPreventsRefresh": true,
+    "appRestartStopsOldScan": true,
+    "restartNeedsManualReset": false,
+    "cachedMediaRefreshedOnNewStart": true,
+    "realAccountTested": false,
+    "errors": []
+  },
+  "gui": {
+    "gui_created": true,
+    "steps": [
+      1,
+      2,
+      3
+    ],
+    "manual_csv_required": false,
+    "pairing_code_required": false,
+    "edge_automation_imported": true,
+    "runtime_checks_completed": true,
+    "width": 984,
+    "height": 658
+  },
+  "edge": {
+    "normal_edge_ui": true,
+    "single_click_install": true,
+    "pairing_code_required": false,
+    "edge_heartbeat_verified": true,
+    "isolated_test_profile": true,
+    "real_account_tested": false,
+    "extension_version": "5.4.0"
+  },
+  "runtime": {
+    "checks": [
+      {
+        "name": "Windows 10/11 x64",
+        "ok": true,
+        "detail": "Windows-2022Server-10.0.20348-SP0"
+      },
+      {
+        "name": "Microsoft Edge",
+        "ok": true,
+        "detail": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      },
+      {
+        "name": "Package integrity",
+        "ok": true,
+        "detail": "1268 files verified"
+      },
+      {
+        "name": "yt-dlp",
+        "ok": true,
+        "detail": "2026.10.26"
+      },
+      {
+        "name": "ffmpeg",
+        "ok": true,
+        "detail": "ffmpeg version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2000-2026 the FFmpeg developers"
+      },
+      {
+        "name": "ffprobe",
+        "ok": true,
+        "detail": "ffprobe version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2007-2026 the FFmpeg developers"
+      },
+      {
+        "name": "User data",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\AppData\\Local\\ReelShortDownloaderTop"
+      },
+      {
+        "name": "Downloads",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\Downloads\\Reel Short Downloader Top"
+      }
+    ],
+    "extension_setup": "application step 2"
+  },
+  "download": {
+    "actual_ytdlp": true,
+    "actual_ffprobe": true,
+    "first_download": "passed",
+    "repeat_download": "passed",
+    "fixture_sha256": "f17b15b9d78c31f3441df0f78dd4ba2b81303e6ab91332f56bec24e45ca399ad",
+    "account_tested": false
+  },
+  "installer": {
+    "activationRequiredDuringInstall": false,
+    "installExitCode": 0,
+    "missingToolExitCode": 12,
+    "uninstallExitCode": 0,
+    "runtimeExitCode": 0
+  },
+  "installer_interactive": {
+    "real_installer": true,
+    "finish_after_core_requirements": true,
+    "pairing_wizard_required": false,
+    "application_launched": true,
+    "uninstall_passed": true,
+    "missing_tool_blocks_finish": true,
+    "incomplete_exit_code": 12
+  },
+  "binary": {
+    "source_run": 43648092517,
+    "source_commit": "2b205e23f455cdcae54b655493474815763b5aa9",
+    "original_checksums_verified": true,
+    "installer_sha256": "2685bb684a96a64d5454d04c9b6d64a1ddf5eed072304791b6071dd4fc0c2a94",
+    "installer_size": 91801126,
+    "artifact_id": 14134897186,
+    "artifact_zip_sha256": "6c2cc6acb04cee9b06750ef03b1c79917c88c54bef4c82d90807af5d95fd165b",
+    "delivery_run": 43648557874,
+    "delivery_zip_size": 91802745,
+    "delivery_zip_sha256": "9a9f07b6c65d5ff17bdaa96c1d5121dc9aea7abb06b00a0b4c4bac98c9a47db6"
+  },
+  "images_reviewed": [
+    "gui.png",
+    "edge-installed.png",
+    "installer-incomplete.png"
+  ],
+  "real_account_tested": false,
+  "physical_windows_10_11_tested": false,
+  "signing_certificate_available": false
+}
