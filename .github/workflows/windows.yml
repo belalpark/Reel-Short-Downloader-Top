@@ -101,6 +101,8 @@ jobs:
       - name: Test installer refusal without activated extension
         shell: pwsh
         run: ./scripts/Test-Installer.ps1
+      - name: Test interactive refusal, retry and uninstall
+        run: python -m scripts.test_installer_ui
       - name: Create portable archive and checksums
         shell: pwsh
         run: |
