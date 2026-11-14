@@ -89,6 +89,8 @@ jobs:
           if ($p.ExitCode -ne 0) { Get-Content test-results/runtime.json; throw 'Packaged runtime check failed' }
           $p = Start-Process -FilePath $exe -ArgumentList '--smoke-test --report test-results/gui.json --screenshot test-results/gui.png' -Wait -PassThru
           if ($p.ExitCode -ne 0 -or -not (Test-Path test-results/gui.json)) { throw 'Packaged GUI smoke test failed' }
+      - name: Test real downloads using bundled tools
+        run: python -m scripts.smoke_download --root dist/ReelShortDownloaderTop --report test-results/download.json
       - name: Compile installer
         shell: pwsh
         run: |
