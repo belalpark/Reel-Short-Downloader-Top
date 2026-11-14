@@ -39,9 +39,9 @@ def windows(parent=None):
             USER32.GetWindowTextW(handle, title, len(title))
             USER32.GetClassNameW(handle, cls, len(cls))
             if parent and "Button" in cls.value:
-                result = ctypes.c_size_t()
+                message_result = ctypes.c_size_t()
                 # Custom VCL captions are not always available through cross-process GetWindowText.
-                USER32.SendMessageTimeoutW(handle, 0x000D, len(title), ctypes.cast(title, ctypes.c_void_p).value, 0x0002, 200, ctypes.byref(result))
+                USER32.SendMessageTimeoutW(handle, 0x000D, len(title), ctypes.cast(title, ctypes.c_void_p).value, 0x0002, 200, ctypes.byref(message_result))
             result.append((handle, title.value, cls.value))
         return True
     callback = CALLBACK(visit)

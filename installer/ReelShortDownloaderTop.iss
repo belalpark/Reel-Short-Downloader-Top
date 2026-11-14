@@ -113,6 +113,7 @@ begin
   if CurPageID = VerificationPage.ID then
   begin
     WizardForm.BackButton.Enabled := False;
+    WizardForm.CancelButton.Visible := True;
     if not ActivationAttempted then RunActivation();
   end;
 end;
