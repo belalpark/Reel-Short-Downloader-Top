@@ -19,11 +19,11 @@ def copy_runtime_licenses(target: Path):
     if not python_license.is_file():
         raise RuntimeError("Python license is missing")
     shutil.copy2(python_license, folder / "Python-LICENSE.txt")
-    for package in ("Pillow", "PyInstaller"):
+    for package in ("Pillow", "PyInstaller", "pywinauto", "comtypes", "pywin32"):
         dist = importlib.metadata.distribution(package)
         copied = 0
         for relative in dist.files or []:
-            if ".dist-info" not in str(relative) or not any(part.lower().startswith(("license", "copying")) for part in relative.parts):
+            if not any("license" in part.lower() or part.lower().startswith("copying") for part in relative.parts) or Path(relative).suffix.lower() in (".py", ".pyc", ".pyd"):
                 continue
             source = Path(dist.locate_file(relative))
             if source.is_file():

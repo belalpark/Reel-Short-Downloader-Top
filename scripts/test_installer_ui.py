@@ -1,4 +1,4 @@
-"""Windows-only acceptance: close setup unpaired, retry, refuse Finish, uninstall."""
+"""Windows-only acceptance: requirements, normal Finish, app launch and uninstall."""
 from __future__ import annotations
 
 import ctypes
@@ -85,56 +85,46 @@ def main():
     evidence.mkdir(exist_ok=True)
     installer = next((root / "release").glob("*Setup*.exe"))
     target = Path(os.environ["RUNNER_TEMP"]) / "ReelShortInteractiveTest"
-    log = evidence / "installer-interactive.log"
-    process = subprocess.Popen([str(installer), "/SP-", "/NORESTART", f"/DIR={target}", f"/LOG={log}"])
+    process = subprocess.Popen([str(installer), "/SP-", "/NORESTART", f"/DIR={target}", f"/LOG={evidence / 'installer-interactive.log'}"])
     try:
         wait_for(setup_window, "installer welcome")
-        print('Installer controls:', windows(setup_window()[0]), flush=True)
         last_click = 0.0
-        def advance_to_activation():
+        def advance_to_finish():
             nonlocal last_click
-            activation = activation_window()
-            if activation:
-                return activation
-            installer_window = setup_window()
-            if installer_window and time.monotonic() - last_click > 0.7:
-                for handle, text in buttons(installer_window[0]):
+            wizard = setup_window()
+            if not wizard:
+                return None
+            controls = buttons(wizard[0])
+            finish = next((h for h, text in controls if text == "Finish"), None)
+            if finish:
+                return finish
+            if time.monotonic() - last_click > 0.7:
+                for handle, text in controls:
                     if text in ("Next", "Next >", "Install"):
-                        USER32.SetForegroundWindow(installer_window[0])
-                        USER32.SetActiveWindow(installer_window[0])
-                        # Post rather than Send: the Next handler can synchronously wait for the app.
                         USER32.PostMessageW(handle, 0x00F5, 0, 0)
                         last_click = time.monotonic()
                         break
             return None
-        activation = wait_for(advance_to_activation, "interactive application activation", timeout=100)
-        print('Actual setup application opened', flush=True)
-        USER32.PostMessageW(activation[0], 0x0010, 0, 0)  # WM_CLOSE; production setup returns 12.
-        def retry_button():
-            wizard = setup_window()
-            if not wizard or activation_window():
-                return None
-            controls = buttons(wizard[0])
-            assert not any("Finish" in text for _, text, cls in windows(wizard[0]) if "Button" in cls), "Finish was visible before activation"
-            return next((handle for handle, text in controls if text.startswith("Retry")), None)
-        retry = wait_for(retry_button, "verification page after cancellation")
-        ImageGrab.grab().save(evidence / "installer-incomplete.png")
-        USER32.PostMessageW(retry, 0x00F5, 0, 0)
-        activation = wait_for(activation_window, "retry reopens actual activation application")
-        USER32.PostMessageW(activation[0], 0x0010, 0, 0)
-        wait_for(retry_button, "second refusal")
-        wizard = setup_window()
-        cancel = next(h for h, text in buttons(wizard[0]) if text == "Cancel")
-        click(cancel)
-        exit_code = process.wait(timeout=30)
-        assert exit_code != 0, "Incomplete interactive setup returned success"
-        app = target / "ReelShortDownloaderTop.exe"
-        assert app.is_file(), "File-copy phase was not exercised"
+        finish = wait_for(advance_to_finish, "healthy interactive installer Finish", timeout=120)
+        assert not activation_window(), "Installer must not demand a separate pairing wizard"
+        report_path = Path(os.environ["LOCALAPPDATA"]) / "ReelShortDownloaderTop" / "installer-runtime.json"
+        import json
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        assert all(item["ok"] for item in report["checks"]), "Finish appeared with an unhealthy requirement"
+        ImageGrab.grab().save(evidence / "installer-finish.png")
+        click(finish)
+        assert process.wait(timeout=30) == 0
+        application = wait_for(activation_window, "normal application launched after Finish")
+        ImageGrab.grab().save(evidence / "installed-application.png")
+        USER32.PostMessageW(application[0], 0x0010, 0, 0)
+        wait_for(lambda: not activation_window(), "application exit")
+        time.sleep(2)
         uninstaller = target / "unins000.exe"
-        assert uninstaller.is_file(), "Incomplete install has no removal path"
         remove = subprocess.run([str(uninstaller), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"], timeout=60)
-        assert remove.returncode == 0 and not app.exists(), "Uninstall did not remove application files"
-        write_json(evidence / "installer-interactive.json", {"real_installer": True, "actual_setup_application": True, "unpaired_close_exit_code": exit_code, "finish_blocked": True, "retry_reopened_application": True, "uninstall_passed": True, "successful_edge_activation_tested": False})
+        assert remove.returncode == 0 and not (target / "ReelShortDownloaderTop.exe").exists()
+        write_json(evidence / "installer-interactive.json", {"real_installer": True,
+            "finish_after_core_requirements": True, "pairing_wizard_required": False,
+            "application_launched": True, "uninstall_passed": True})
     finally:
         if process.poll() is None:
             ImageGrab.grab().save(evidence / "installer-timeout.png")

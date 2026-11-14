@@ -10,6 +10,7 @@
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   let busy = false;
   let cancelled = false;
+  let lastDesktopPublish = 0;
   
 
   function token() {
@@ -25,6 +26,10 @@
     if(cancelled && state.running) return false;
     state.updatedAt = new Date().toISOString();
     await chrome.storage.local.set({[STORE]: state, ['dramaScannerSeries:'+state.seriesId]: state});
+    if(state.autoMode && (Date.now()-lastDesktopPublish>900 || !state.running)){
+      lastDesktopPublish=Date.now();
+      try{await chrome.runtime.sendMessage({type:'DRAMA_DESKTOP_SNAPSHOT',state});}catch(_){}
+    }
     draw(state);
   }
   function pause(state, message) {
@@ -92,12 +97,16 @@
           if(response.ok && new URL(response.url).hostname==='www.reelshort.com') {
             const fresh=C.readHTML(await response.text(),response.url,state.seriesId,episode);
             if (fresh) info=fresh;
-          } else if (!response.ok) recordError(state,episode,`HTML metadata HTTP ${response.status}`);
+          } else if (!response.ok) {
+            recordError(state,episode,`HTML metadata HTTP ${response.status}`);
+            if([429,503].includes(response.status))state.rateLimited=true;
+          }
         } finally {clearTimeout(timeout);}
       } catch (_) { /* Metadata may be absent, but video can still play. */ }
     }
     const old=state.rows[String(episode)]||{};
     if(cancelled) return;
+    if(state.rateLimited){pause(state,'الموقع يطلب الانتظار. توقف الفحص؛ حاول لاحقًا.');await persist(state);return;}
     const newMedia=info && C.mediaUrl(info.mediaUrl) ? info.mediaUrl : '';
     const row=state.rows[String(episode)]={
       ...old,episode,pageUrl:url.split('?')[0],mediaUrl:newMedia||old.mediaUrl||'',
@@ -118,9 +127,15 @@
     if (!result.ok) {
       row.status=row.mediaUrl?'media_found':result.reason;
       recordError(state,episode,result.reason);
-      pause(state,`الحلقة ${episode}: لم يثبت بدء التشغيل (${result.reason}). شغّلها بنفسك واضغط «استئناف»، أو تجاوز الحلقة.`);
+      if(!state.autoMode)pause(state,`الحلقة ${episode}: لم يثبت بدء التشغيل (${result.reason}). شغّلها بنفسك واضغط «استئناف»، أو تجاوز الحلقة.`);
+      else state.note=`الحلقة ${episode}: لم يبدأ التشغيل؛ ستُعاد محاولة الناقص تلقائيًا.`;
       await persist(state);
       return;
+    }
+    const currentVideo=document.querySelector('video');
+    const visibleSource=C.mediaUrl(currentVideo?.currentSrc||currentVideo?.src||'');
+    if(!row.mediaUrl && visibleSource && P.distinctEpisodeCandidates([visibleSource],state.rows,episode).unique.length){
+      row.mediaUrl=visibleSource;row.sourceType='video_element';
     }
     // Media requests could be triggered before the first visible frame. Limit to this
     // episode navigation window and explicitly label association as unverified.
@@ -156,6 +171,7 @@
       if (group) { group.click(); await sleep(350); if(cancelled)return 'cancelled'; btn = C.findEpisodeButton(document,episode); }
     }
     if (!btn) return 'missing';
+    if(btn.disabled || btn.getAttribute('aria-disabled')==='true')return 'access_unavailable';
     const before = location.href;
     btn.click(); // Only episode selection; NEVER click purchase/unlock controls.
     for (let i=0; i<35; i++) {
@@ -187,7 +203,7 @@
         const ep=state.current;
         if (state.recheckOnly) {
           const existing=state.rows[String(ep)]||{};
-          if (existing.mediaUrl || (existing.playbackStatus==='playback_verified' && (existing.hlsCandidates||[]).length)) {
+          if (existing.mediaUrl || (!state.autoMode && existing.playbackStatus==='playback_verified' && (existing.hlsCandidates||[]).length)) {
             state.current++; await persist(state); continue;
           }
         }
@@ -207,8 +223,9 @@
           if (result !== 'ready') {
             statusRow(state,ep,result);
             recordError(state,ep,result);
-            if (result === 'manual_open_required' || result === 'wrong_page') {
-              pause(state,`تعذّر الانتقال إلى الحلقة ${ep} تلقائيًا. افتح الحلقة ${ep} يدويًا في هذا التبويب ثم اختر «استئناف»، أو اختر «تجاوز».`);
+            if (state.autoMode && result==='manual_open_required')state.navigationBlocked=(state.navigationBlocked||0)+1;
+            if ((!state.autoMode && result === 'manual_open_required') || result === 'wrong_page' || state.navigationBlocked>=2) {
+              pause(state,state.autoMode?`تعذّر فتح الحلقة ${ep}. أكمل الوصول إليها في الموقع ثم اضغط بدء التنزيل في التطبيق.`:`تعذّر الانتقال إلى الحلقة ${ep} تلقائيًا. افتح الحلقة ${ep} يدويًا في هذا التبويب ثم اختر «استئناف»، أو اختر «تجاوز».`);
               await persist(state);
               break;
             }
@@ -238,9 +255,27 @@
       }
       const done=await load();
       if (done?.running && done.current > done.total && done.owner===token()) {
+        const retry=globalThis.DramaRetryPlan?.plan(done);
+        if(retry){
+          done.autoPass=retry.pass;done.current=retry.episode;done.recheckOnly=true;
+          done.episodeStartedFor=0;done.epStartedAt=0;
+          done.note=`إعادة فحص ${retry.remaining} حلقة ناقصة — المحاولة ${retry.pass}/${done.maxPasses}`;
+          await persist(done);
+          const until=Date.now()+retry.delayMs;
+          while(Date.now()<until){if(cancelled)return;await sleep(250);}
+          const latest=await load();
+          if(cancelled||!latest?.running||latest.owner!==token())return;
+          const destination=done.rows[String(retry.episode)]?.pageUrl;
+          if(destination?.startsWith('https://www.reelshort.com/')&&C.seriesIdFromUrl(destination)===done.seriesId){
+            if(destination.split('?')[0]===location.href.split('?')[0])location.reload();else location.assign(destination);
+          }else location.reload();
+          return;
+        }
         done.running=false; done.paused=false; done.finished=true;
-        done.note='انتهى الفحص؛ يجري حفظ CSV في التنزيلات.';
+        const missing=globalThis.DramaRetryPlan?.missing(done)||[];
+        done.note=done.autoMode ? (missing.length?`انتهت المحاولات؛ ${missing.length} حلقة دون رابط تنزيل متاح.`:'اكتشفت روابط جميع الحلقات؛ يتابع التطبيق التنزيل.'):'انتهى الفحص؛ يجري حفظ CSV في التنزيلات.';
         await persist(done);
+        if(done.autoMode)return;
         try {
           const result=await chrome.runtime.sendMessage({type:'DRAMA_EXPORT_AUTOMATIC',state:done});
           if (!result?.ok) throw Error(result?.error || 'Auto-export failed');
@@ -257,9 +292,10 @@
       }
     } finally { busy=false; }
   }
-  async function start(includePaid,waitMs) {
-    if(busy) return {ok:false,error:'انتظر توقف العملية الحالية أولًا.'};
+  async function start(includePaid,waitMs,options={}) {
     const previous=await load();
+    if(options.desktopCommandId && previous?.desktopCommandId===options.desktopCommandId)return {ok:true};
+    if(busy) return {ok:false,error:'انتظر توقف العملية الحالية أولًا.'};
     if(previous?.running) return {ok:false,error:'أوقف الفحص الجاري أولًا قبل بدء فحص جديد.'};
     cancelled=false;
     const info=C.extractDocument(document,location.href) || {};
@@ -280,6 +316,12 @@
       waitMs:Math.min(25000,Math.max(3000,Number(waitMs)||9000)),recheckOnly:false,
       current:1,running:true,paused:false,finished:false,note:'بدء فحص روابط الحلقات',rows:{},events:[],knownButtons:buttons.length,
       sourceUrl:location.href,startedAt:new Date().toISOString()};
+    if(options.autoMode){
+      state.autoMode=true;state.autoPass=1;state.maxPasses=Math.min(3,Math.max(1,Number(options.maxPasses)||3));
+      state.retryDelayMs=Number(options.retryDelayMs)||10000;
+      state.desktopCommandId=String(options.desktopCommandId||'');
+      if(previous?.seriesId===id){state.rows=previous.rows||{};state.recheckOnly=true;}
+    }
     discover(state);
     await persist(state);
     setTimeout(loop,150);
@@ -388,7 +430,7 @@
     if (message?.type === 'DRAMA_RESUME') {resume().then(respond).catch(e=>respond({ok:false,error:String(e?.message||e)}));return true;}
     if (message?.type === 'DRAMA_SKIP') {skip().then(respond).catch(e=>respond({ok:false,error:String(e?.message||e)}));return true;}
     if (message?.type === 'DRAMA_START') {
-      start(message.includePaid,message.waitMs).then(respond).catch(e=>respond({ok:false,error:String(e?.message||e)}));
+      start(message.includePaid,message.waitMs,message).then(respond).catch(e=>respond({ok:false,error:String(e?.message||e)}));
       return true;
     }
     if (message?.type === 'DRAMA_STOP') {

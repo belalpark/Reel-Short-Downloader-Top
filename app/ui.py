@@ -3,360 +3,320 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import queue
-import subprocess
 import threading
+import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, ttk
 
 from . import VERSION
+from .automatic import AutomaticDownloads, provision_extension, series_from_page
 from .bridge import Bridge
-from .catalog import load_catalog
-from .downloader import DownloadQueue
-from .paths import bundle_root, data_root, downloads_root, write_json
+from .downloader import redact
+from .edge_install import install_unpacked
+from .paths import bundle_root, data_root, downloads_root
 from .runtime import check_runtime, open_edge
 
-NAVY = "#13233F"
-BG = "#F3F6FB"
-MUTED = "#60718B"
-BLUE = "#2563EB"
+NAVY, BLUE, BG, MUTED = "#152540", "#2563EB", "#F2F5FA", "#60718B"
 
 
 class DesktopApp:
     def __init__(self, root: tk.Tk, setup=False, smoke=False):
-        self.root, self.setup, self.smoke = root, setup, smoke
-        self.exit_code = 12 if setup else 0
-        self.events = queue.Queue()
-        self.entries = []
-        self.checks = []
-        self.checking = False
-        self.finishing = False
+        self.root, self.smoke = root, smoke
+        self.exit_code = 0
+        self.events, self.logs = queue.Queue(), []
+        self.checks, self.checking, self.installing = [], False, False
+        self.entries, self.scan_meta = [], {}
+        self.row_status = {}
         self.bridge = None
+        self.extension_folder = data_root() / "Extension"
         self.destination = downloads_root()
-        self.downloads = DownloadQueue(bundle_root(), data_root() / "last_session.json", self.events.put)
-        root.title("Reel Short Downloader Top" + (" — الإعداد" if setup else ""))
-        left, top, right, bottom = 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
+        self.automatic = AutomaticDownloads(bundle_root(), data_root() / "Inbox", self.destination, data_root(), self.events.put)
+        self.closed = False
+        root.title("Reel Short Downloader Top")
+        self.work_area = (0, 0, root.winfo_screenwidth(), root.winfo_screenheight())
         if os.name == "nt":
             import ctypes
             from ctypes import wintypes
             area = wintypes.RECT()
             if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(area), 0):
-                left, top, right, bottom = area.left, area.top, area.right, area.bottom
-        self.work_area = (left, top, right, bottom)
-        width = max(980, min(1160, right - left - 40))
-        height = max(600, min(800, bottom - top - 70))
-        root.geometry(f"{width}x{height}+{left+16}+{top+10}")
-        root.minsize(980, 600)
+                self.work_area = (area.left, area.top, area.right, area.bottom)
+        left, top, right, bottom = self.work_area
+        root.geometry(f"{max(880,min(1100,right-left-40))}x{max(600,min(760,bottom-top-70))}+{left+16}+{top+10}")
+        root.minsize(880, 600)
         root.configure(bg=BG)
         root.protocol("WM_DELETE_WINDOW", self.close)
         style = ttk.Style(root)
         style.theme_use("clam")
         style.configure("TFrame", background=BG)
-        style.configure("TLabel", background=BG, foreground=NAVY, font=("Segoe UI", 11))
-        style.configure("Card.TFrame", background="white")
-        style.configure("TButton", font=("Segoe UI", 10), padding=(12, 8), borderwidth=0, background="#E6EDF7", foreground=NAVY)
-        style.map("TButton", background=[("active", "#D8E5F8"), ("disabled", "#EDF1F6")])
-        style.configure("Primary.TButton", background=BLUE, foreground="white")
-        style.map("Primary.TButton", background=[("disabled", "#CBD5E1"), ("active", "#1D4ED8")])
-        style.configure("TNotebook", background=BG, borderwidth=0)
-        style.configure("TNotebook.Tab", padding=(18, 7), font=("Segoe UI", 11), background="#E6EDF7", foreground=NAVY)
-        style.map("TNotebook.Tab", background=[("selected", "#FFFFFF"), ("active", "#D8E5F8")])
-        style.configure("Treeview", background="white", fieldbackground="white", foreground=NAVY, font=("Segoe UI", 10), rowheight=35, borderwidth=0)
-        style.configure("Treeview.Heading", background="#E8EEF7", foreground=NAVY, font=("Segoe UI", 10, "bold"), padding=8)
-        style.map("Treeview", background=[("selected", "#DBEAFE")], foreground=[("selected", NAVY)])
-
-        header = tk.Frame(root, bg=NAVY, padx=24, pady=8)
+        style.configure("TLabel", background=BG, foreground=NAVY, font=("Segoe UI", 10))
+        style.configure("TButton", background="#E5EDF9", foreground=NAVY, padding=(12, 9), font=("Segoe UI", 11), borderwidth=0)
+        style.map("TButton", background=[("active", "#D8E6FA"), ("disabled", "#E8EDF4")])
+        style.configure("Primary.TButton", background=BLUE, foreground="white", font=("Segoe UI", 12, "bold"))
+        style.map("Primary.TButton", background=[("active", "#1D4ED8"), ("disabled", "#AFC5EF")])
+        style.configure("Treeview", background="white", fieldbackground="white", foreground=NAVY, rowheight=30, font=("Segoe UI", 10), borderwidth=0)
+        style.configure("Treeview.Heading", background="#E7EEF8", foreground=NAVY, font=("Segoe UI", 10, "bold"), padding=6)
+        header = tk.Frame(root, bg=NAVY, padx=22, pady=15)
         header.pack(fill="x")
-        header.columnconfigure(1, weight=1)
-        tk.Label(header, text="REEL SHORT", bg=NAVY, fg="white", font=("Segoe UI", 20, "bold")).grid(row=0, column=0, sticky="w")
-        tk.Label(header, text="DOWNLOADER TOP", bg=NAVY, fg="#A9C6FF", font=("Segoe UI", 9, "bold")).grid(row=1, column=0, sticky="w")
-        tk.Label(header, text="مساحة واحدة للفهرسة والتنزيل وإعداد الإضافة", bg=NAVY, fg="#E0E7F3", font=("Segoe UI", 12)).grid(row=0, column=1, rowspan=2, sticky="e")
-        body = ttk.Frame(root, padding=(20, 12))
+        tk.Label(header, text="REEL SHORT DOWNLOADER TOP", bg=NAVY, fg="white", font=("Segoe UI", 17, "bold")).pack(side="left")
+        tk.Label(header, text="افتح · أضف الملحق · حمّل", bg=NAVY, fg="#C8D9FC", font=("Segoe UI", 12)).pack(side="right")
+        body = ttk.Frame(root, padding=(18, 12))
         body.pack(fill="both", expand=True)
-        self.connection = tk.StringVar(value="الإضافة غير متصلة")
-        bar = ttk.Frame(body)
-        bar.pack(fill="x", pady=(0, 8))
-        ttk.Label(bar, text=f"v{VERSION}  •  Windows", foreground=MUTED).pack(side="left")
-        self.connection_label = ttk.Label(bar, textvariable=self.connection, foreground=MUTED)
-        self.connection_label.pack(side="right")
-        self.tabs = ttk.Notebook(body)
-        self.tabs.pack(fill="both", expand=True)
-        self.episodes_tab, self.setup_tab, self.logs_tab = [ttk.Frame(self.tabs, padding=12) for _ in range(3)]
-        self.tabs.add(self.episodes_tab, text="الحلقات والتنزيل")
-        self.tabs.add(self.setup_tab, text="إعداد Microsoft Edge")
-        self.tabs.add(self.logs_tab, text="سجل العمليات")
-        self._episodes_page()
-        self._setup_page()
-        self._logs_page()
-        self.footer = tk.StringVar(value="اختر ملف فهرس الحلقات للبدء.")
-        ttk.Label(body, textvariable=self.footer, foreground=MUTED, anchor="e", wraplength=1000).pack(fill="x", pady=(8, 0))
-        if not smoke:
-            try:
-                self.bridge = Bridge(data_root() / "connection.json")
-                self.bridge.start()
-                self.code.set(self.bridge.enable_pairing())
-            except OSError:
-                self.bridge = None
-                self.code.set("غير متاح")
-                self.events.put(("log", "تعذر فتح الاتصال المحلي 127.0.0.1:18765. أغلق أي نسخة أخرى من التطبيق ثم أعد فتحه."))
-        self.root.after(250, self._poll)
-        if setup:
-            self.tabs.select(self.setup_tab)
-        self.recheck()
-
-    def _button(self, parent, text, command, primary=False):
-        return ttk.Button(parent, text=text, command=command, style="Primary.TButton" if primary else "TButton")
-
-    def _episodes_page(self):
-        frame = self.episodes_tab
-        ttk.Label(frame, text="مكتبة الحلقات", font=("Segoe UI", 18, "bold"), anchor="e").pack(fill="x")
-        self.summary = tk.StringVar(value="لم يُحدد فهرس بعد")
-        ttk.Label(frame, textvariable=self.summary, anchor="e", foreground=MUTED, wraplength=980).pack(fill="x", pady=(4, 10))
-        actions = ttk.Frame(frame)
-        actions.pack(fill="x", pady=(0, 8))
-        self._button(actions, "فتح ReelShort في Edge", lambda: self._guard(lambda: open_edge("https://www.reelshort.com/"))).pack(side="left")
-        self.import_button = self._button(actions, "اختيار فهرس CSV", self.import_csv, True)
-        self.import_button.pack(side="right")
-        table_frame = ttk.Frame(frame)
+        cards = ttk.Frame(body)
+        cards.pack(fill="x")
+        self.step_buttons = []
+        specs = [("١", "افتح موقع المسلسل", "سجّل دخولك، ثم افتح المسلسل المطلوب.", self.open_site),
+                 ("٢", "أضف الملحق", "إضافة وربط تلقائيان، دون رمز أو كلمة مرور.", self.add_extension),
+                 ("٣", "ابدأ التنزيل", "حفظ تلقائي وإعادة فحص الحلقات الناقصة.", self.start_download)]
+        for index, (number, title, description, command) in enumerate(specs):
+            cards.columnconfigure(2-index, weight=1, uniform="steps")
+            card = tk.Frame(cards, bg="white", padx=12, pady=10, highlightbackground="#DAE3F0", highlightthickness=1)
+            card.grid(row=0, column=2-index, sticky="nsew", padx=(5, 5))
+            tk.Label(card, text=number, bg="white", fg=BLUE, font=("Segoe UI", 28, "bold")).pack(anchor="e")
+            tk.Label(card, text=description, bg="white", fg=MUTED, font=("Segoe UI", 10), wraplength=265, justify="right", height=2).pack(fill="x", pady=(0, 10))
+            button = ttk.Button(card, text=title, command=command, style="Primary.TButton" if index == 2 else "TButton")
+            button.pack(fill="x")
+            self.step_buttons.append(button)
+        self.status = tk.StringVar(value="جارٍ التجهيز…")
+        status_row = ttk.Frame(body)
+        status_row.pack(fill="x", pady=(12, 5))
+        self.stop_button = ttk.Button(status_row, text="إيقاف", command=self.stop_download)
+        self.stop_button.pack(side="left")
+        ttk.Label(status_row, textvariable=self.status, anchor="e", foreground=BLUE, wraplength=740).pack(side="right", fill="x", expand=True)
+        self.connection = tk.StringVar(value="الملحق غير متصل")
+        ttk.Label(body, textvariable=self.connection, foreground=MUTED, anchor="e").pack(fill="x", pady=(0, 5))
+        self.fallback = ttk.Frame(body)
+        ttk.Button(self.fallback, text="فتح صفحة الإضافات", command=self.open_extensions).pack(side="right")
+        ttk.Button(self.fallback, text="نسخ مسار الملحق", command=self.copy_extension_path).pack(side="right", padx=6)
+        self.counts = tk.StringVar(value="تم التنزيل: ٠   |   المتوفر: ٠   |   بانتظار رابط: ٠")
+        ttk.Label(body, textvariable=self.counts, anchor="e", font=("Segoe UI", 12, "bold")).pack(fill="x", pady=(2, 7))
+        bottom = ttk.Frame(body)
+        bottom.pack(side="bottom", fill="x", pady=(9, 0))
+        ttk.Button(bottom, text="فتح مجلد الحفظ", command=lambda: self.open_folder(self.destination)).pack(side="left")
+        ttk.Button(bottom, text="تغيير المجلد", command=self.choose_destination).pack(side="left", padx=6)
+        ttk.Button(bottom, text="التفاصيل", command=self.show_details).pack(side="left")
+        self.path_label = ttk.Label(body, text=str(self.destination), anchor="e", foreground=MUTED, wraplength=970)
+        self.path_label.pack(side="bottom", fill="x", pady=(8, 0))
+        self.progress = ttk.Progressbar(body, maximum=100)
+        self.progress.pack(side="bottom", fill="x", pady=(6, 0))
+        table_frame = ttk.Frame(body)
         table_frame.pack(fill="both", expand=True)
-        self.table = ttk.Treeview(table_frame, columns=("status", "media", "playback", "episode"), show="headings", selectmode="extended", height=7)
-        for col, title, width in (("status", "الحالة", 300), ("media", "رابط الفيديو", 190), ("playback", "تشغيل المتصفح", 210), ("episode", "الحلقة", 90)):
-            self.table.heading(col, text=title)
-            self.table.column(col, width=width, minwidth=70, anchor="e")
+        self.table = ttk.Treeview(table_frame, columns=("status", "available", "episode"), show="headings", height=4, selectmode="none")
+        for key, title, width in (("status", "حالة التنزيل", 440), ("available", "رابط الفيديو", 220), ("episode", "الحلقة", 100)):
+            self.table.heading(key, text=title)
+            self.table.column(key, width=width, anchor="e", minwidth=70)
         scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.table.yview)
         self.table.configure(yscrollcommand=scroll.set)
         self.table.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
-        output = ttk.Frame(frame)
-        output.pack(fill="x", pady=12)
-        self._button(output, "تغيير مجلد الحفظ", self.choose_destination).pack(side="left")
-        self.folder_label = ttk.Label(output, text=str(self.destination), foreground=MUTED, anchor="e", wraplength=750)
-        self.folder_label.pack(side="right", fill="x", expand=True, padx=12)
-        row = ttk.Frame(frame)
-        row.pack(fill="x")
-        self.download_button = self._button(row, "تنزيل المحدد / جميع الروابط", self.start_download, True)
-        self.download_button.pack(side="right")
-        self.stop_button = self._button(row, "إيقاف وحفظ التقدم", self.stop_download)
-        self.stop_button.pack(side="right", padx=8)
-        self._button(row, "فتح مجلد التنزيلات", lambda: self.open_folder(self.destination)).pack(side="left")
-        self.progress = ttk.Progressbar(frame, maximum=100)
-        self.progress.pack(fill="x", pady=(12, 0))
-        # Reserve bottom actions first, allowing only the scrollable table to shrink.
-        for widget in (table_frame, output, row, self.progress):
-            widget.pack_forget()
-        self.progress.pack(side="bottom", fill="x", pady=(8, 0))
-        row.pack(side="bottom", fill="x")
-        output.pack(side="bottom", fill="x", pady=8)
-        table_frame.pack(fill="both", expand=True)
+        if not smoke:
+            try:
+                credentials = data_root() / "connection.json"
+                provision_extension(bundle_root() / "extension", self.extension_folder, credentials)
+                self.bridge = Bridge(credentials, inbox=data_root() / "Inbox")
+                self.bridge.start()
+                self.automatic.start_worker()
+            except OSError as error:
+                self.events.put(("error", "تعذر فتح البرنامج؛ أغلق أي نسخة أخرى ثم حاول مجددًا.", str(error)))
+        self.recheck()
+        root.after(250, self._poll)
 
-    def _setup_page(self):
-        frame = self.setup_tab
-        ttk.Label(frame, text="تجهيز المتصفح والتحقق من الاتصال", font=("Segoe UI", 18, "bold"), anchor="e").pack(fill="x")
-        ttk.Label(frame, text="1. افتح صفحة الإضافات، ثم فعّل Developer mode واختر Load unpacked.\n2. اختر مجلد الإضافة المنسوخ، ثم افتح أيقونتها وأدخل رمز الربط أدناه.\n3. اضغط «ربط التطبيق» داخل الإضافة، ثم ارجع إلى التطبيق لإتمام التحقق.", justify="right", anchor="e", wraplength=980).pack(fill="x", pady=10)
-        row = ttk.Frame(frame)
-        row.pack(fill="x")
-        self._button(row, "نسخ المسار وفتح إضافات Edge", self.open_extensions, True).pack(side="right")
-        self._button(row, "فتح مجلد الإضافة", lambda: self.open_folder(bundle_root() / "extension")).pack(side="right", padx=8)
-        self._button(row, "رمز ربط جديد", self.new_code).pack(side="left")
-        ttk.Label(frame, text=str(bundle_root() / "extension"), foreground=MUTED, anchor="e", wraplength=980).pack(fill="x", pady=(8, 0))
-        code_row = ttk.Frame(frame)
-        code_row.pack(fill="x", pady=8)
-        self.code = tk.StringVar(value="—")
-        ttk.Label(code_row, textvariable=self.code, font=("Consolas", 20, "bold"), foreground=BLUE).pack(side="right")
-        ttk.Label(code_row, text="رمز الربط • صالح لخمس دقائق   ", foreground=MUTED).pack(side="right")
-        self._button(code_row, "نسخ الرمز", lambda: self.copy(self.code.get())).pack(side="left")
-        check_container = ttk.Frame(frame)
-        self.check_table = ttk.Treeview(check_container, columns=("detail", "result", "name"), show="headings", height=5, selectmode="none")
-        for key, text, width in (("detail", "التفاصيل", 600), ("result", "النتيجة", 100), ("name", "المتطلب", 180)):
-            self.check_table.heading(key, text=text)
-            self.check_table.column(key, width=width, anchor="e")
-        check_scroll = ttk.Scrollbar(check_container, orient="vertical", command=self.check_table.yview)
-        self.check_table.configure(yscrollcommand=check_scroll.set)
-        self.check_table.pack(side="left", fill="both", expand=True)
-        check_scroll.pack(side="right", fill="y")
-        end = ttk.Frame(frame)
-        self._button(end, "إعادة فحص المتطلبات", self.recheck).pack(side="left")
-        if self.setup:
-            self.finish_button = self._button(end, "إتمام الإعداد بعد التحقق", self.finish_setup, True)
-            self.finish_button.pack(side="right")
-            self.finish_button.configure(state="disabled")
-        hint = ttk.Label(frame, text="إذا أوقف Edge الإضافة، فعّلها من صفحة الإضافات ثم أعد فتح نافذتها. يلزم الاتصال الحالي للتحقق.", anchor="e", foreground=MUTED, wraplength=920)
-        hint.pack(side="bottom", fill="x", pady=(8, 0))
-        end.pack(side="bottom", fill="x", pady=(8, 0))
-        check_container.pack(fill="both", expand=True, pady=6)
-
-    def _logs_page(self):
-        ttk.Label(self.logs_tab, text="سجل محلي دون عرض روابط الوصول", font=("Segoe UI", 18, "bold"), anchor="e").pack(fill="x", pady=(0, 12))
-        self.log = tk.Text(self.logs_tab, bg="white", fg=NAVY, font=("Consolas", 10), relief="flat", wrap="word", state="disabled")
-        self.log.pack(fill="both", expand=True)
-        self._button(self.logs_tab, "فتح مجلد التقارير", lambda: self.open_folder(data_root())).pack(anchor="w", pady=(10, 0))
-
-    def _guard(self, action):
-        try:
-            return action()
-        except (OSError, ValueError, RuntimeError) as e:
-            messagebox.showerror("Reel Short Downloader Top", str(e), parent=self.root)
-
-    def copy(self, value):
-        self.root.clipboard_clear()
-        self.root.clipboard_append(value)
-
-    def open_folder(self, path: Path):
-        def action():
-            path.mkdir(parents=True, exist_ok=True)
-            if os.name == "nt":
-                os.startfile(path)
-            else:
-                subprocess.Popen(["xdg-open", str(path)])
-        self._guard(action)
-
-    def open_extensions(self):
-        self.copy(str(bundle_root() / "extension"))
-        self._guard(lambda: open_edge("edge://extensions/"))
-
-    def new_code(self):
-        if self.bridge:
-            self.code.set(self.bridge.enable_pairing())
-        else:
-            messagebox.showerror("الاتصال غير متاح", "أغلق أي نسخة أخرى من التطبيق ثم أعد فتحه.", parent=self.root)
-
-    def import_csv(self):
-        if self.downloads.running:
-            return
-        name = filedialog.askopenfilename(parent=self.root, title="اختيار فهرس الحلقات", filetypes=[("Episode index", "*.csv")])
-        if not name:
-            return
-        try:
-            entries = load_catalog(Path(name))
-        except (OSError, ValueError) as e:
-            messagebox.showerror("تعذر استيراد الفهرس", str(e), parent=self.root)
-            return
-        self.entries = entries
-        self.table.delete(*self.table.get_children())
-        for item in entries:
-            self.table.insert("", "end", iid=str(item.episode), values=("جاهزة" if item.media_url else "صفحة فقط — لا رابط تنزيل", "متاح من الفهرس" if item.media_url else "غير متاح", "موثق" if item.playback == "playback_verified" else "غير موثق", item.episode))
-        media = sum(bool(item.media_url) for item in entries)
-        self.summary.set(f"{entries[0].title}   •   {len(entries)} حلقة مفهرسة   •   {media} رابط فيديو   •   {len(entries)-media} دون رابط")
-        self.footer.set(Path(name).name + " — حدد صفوفًا لتنزيلها، أو اترك التحديد فارغًا لتنزيل جميع الروابط الصريحة.")
-
-    def choose_destination(self):
-        if self.downloads.running:
-            return
-        chosen = filedialog.askdirectory(parent=self.root, title="مجلد حفظ الفيديو", initialdir=str(self.destination) if self.destination.is_dir() else str(Path.home()))
-        if chosen:
-            self.destination = Path(chosen)
-            self.folder_label.configure(text=chosen)
-            self.recheck()
-
-    def start_download(self):
-        if self.setup or self.downloads.running:
-            return
-        if self.checking or not self.checks or not all(c["ok"] for c in self.checks):
-            self.tabs.select(self.setup_tab)
-            messagebox.showerror("المتطلبات غير جاهزة", "أكمل المتطلبات ثم أعد الفحص.", parent=self.root)
-            return
-        selection = set(self.table.selection())
-        entries = [e for e in self.entries if e.media_url and (not selection or str(e.episode) in selection)]
-        if not entries:
-            messagebox.showinfo("لا توجد روابط", "اختر فهرسًا يحتوي MediaURL. مرشحات HLS لا تُستخدم تلقائيًا.", parent=self.root)
-            return
-        self.progress["value"] = 0
-        self._guard(lambda: self.downloads.start(entries, self.destination))
-
-    def stop_download(self):
-        self.footer.set("جارٍ إيقاف التنزيل؛ ستُحفظ الملفات الجزئية للاستئناف.")
-        threading.Thread(target=self.downloads.cancel, daemon=True).start()
+    def _ready(self):
+        return not self.checking and bool(self.checks) and all(c["ok"] for c in self.checks)
 
     def recheck(self):
         if self.checking:
             return
         self.checking = True
         destination = self.destination
+        def run():
+            try:
+                self.events.put(("checks", check_runtime(output=destination)))
+            except Exception as error:
+                self.events.put(("checks", [{"name": "Runtime", "ok": False, "detail": str(error)}]))
+        threading.Thread(target=run, daemon=True).start()
+
+    def open_site(self):
+        try:
+            open_edge("https://www.reelshort.com/")
+            self.status.set("افتح المسلسل المطلوب في الموقع، ثم تابع من الزر ٢.")
+        except OSError as error:
+            self.status.set(str(error))
+
+    def add_extension(self):
+        if self.installing or not self._ready():
+            return
+        if self.bridge and self.bridge.status()["connected"]:
+            self.status.set("الملحق جاهز. افتح المسلسل واضغط بدء التنزيل.")
+            return
+        self.installing = True
+        self.status.set("جارٍ إضافة الملحق إلى Edge…")
         def worker():
             try:
-                checks = check_runtime(output=destination)
-                self.events.put(("checks", checks))
-            except Exception as e:
-                self.events.put(("checks", [{"name": "Runtime check", "ok": False, "detail": str(e)}]))
-        threading.Thread(target=worker, daemon=True).start()
+                install_unpacked(self.extension_folder, lambda message: self.events.put(("status", message)))
+                self.events.put(("extension_done",))
+            except Exception as error:
+                self.events.put(("extension_error", str(error)))
+        threading.Thread(target=worker, daemon=True, name="edge-extension-setup").start()
 
-    def finish_setup(self):
-        if self.bridge and self.bridge.status()["connected"] and not self.checking:
-            self.finishing = True
-            self.recheck()  # Revalidate the actual files immediately before returning success.
+    def open_extensions(self):
+        self.copy_extension_path()
+        try:
+            open_edge("edge://extensions/")
+        except OSError as error:
+            self.status.set(str(error))
+
+    def copy_extension_path(self):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(str(self.extension_folder))
+        self.status.set("المسار منسوخ: فعّل Developer mode ثم Load unpacked والصق المسار مرة واحدة.")
+
+    def start_download(self):
+        if not self._ready() or not self.bridge or self.automatic.enabled or self.automatic.queue.running:
+            return
+        state = self.bridge.status()
+        sid = series_from_page(state["page_url"])
+        if not state["connected"]:
+            self.status.set("اضغط الزر ٢ لإضافة الملحق أولًا.")
+            return
+        if not sid:
+            self.status.set("افتح صفحة المسلسل المطلوب في Edge ثم اضغط بدء التنزيل.")
+            return
+        try:
+            run_id = self.bridge.command("start", sid)
+            self.automatic.begin(sid, run_id)
+            self.entries, self.scan_meta, self.row_status = [], {}, {}
+            self.table.delete(*self.table.get_children())
+            self.progress["value"] = 0
+            self.status.set("بدأ الفحص؛ سيُحمَّل كل رابط يظهر تلقائيًا، ثم يُعاد فحص الناقص.")
+        except ValueError as error:
+            self.status.set(str(error))
+
+    def stop_download(self):
+        if self.bridge:
+            self.bridge.command("stop", self.automatic.series_id)
+        threading.Thread(target=self.automatic.stop, daemon=True).start()
+        self.status.set("تم طلب الإيقاف؛ يُحفظ تقدم التنزيل للاستئناف.")
+
+    def choose_destination(self):
+        if self.automatic.enabled or self.automatic.queue.running:
+            self.status.set("أوقف التنزيل قبل تغيير المجلد.")
+            return
+        selected = filedialog.askdirectory(parent=self.root, title="مجلد حفظ المقاطع")
+        if selected:
+            self.destination = self.automatic.destination = Path(selected)
+            self.path_label.configure(text=selected)
+            self.recheck()
+
+    def open_folder(self, path):
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+            if os.name == "nt":
+                os.startfile(path)
+        except OSError as error:
+            self.status.set(str(error))
+
+    def show_details(self):
+        window = tk.Toplevel(self.root)
+        window.title("التفاصيل")
+        text = tk.Text(window, wrap="word", width=100, height=24, font=("Consolas", 10))
+        text.pack(fill="both", expand=True)
+        text.insert("end", "\n".join(self.logs[-300:]))
+        text.configure(state="disabled")
+
+    def _update_table(self):
+        done = available = 0
+        for item in self.entries:
+            completed = self.automatic._is_complete(item)
+            done += completed
+            available += bool(item.media_url)
+            value = "مكتمل ومفحوص" if completed else self.row_status.get(item.episode, "بانتظار التنزيل" if item.media_url else "بانتظار رابط متاح")
+            fields = (value, "متوفر" if item.media_url else "لم يظهر بعد", item.episode)
+            if self.table.exists(str(item.episode)):
+                self.table.item(str(item.episode), values=fields)
+            else:
+                self.table.insert("", "end", iid=str(item.episode), values=fields)
+        self.counts.set(f"تم التنزيل: {done}   |   المتوفر: {available}   |   بانتظار رابط: {len(self.entries)-available}")
+        return done
 
     def _poll(self):
+        if self.closed:
+            return
         while True:
             try:
                 event = self.events.get_nowait()
             except queue.Empty:
                 break
             kind, *args = event
-            if kind == "log":
-                self.log.configure(state="normal")
-                self.log.insert("end", args[0] + "\n")
-                if int(self.log.index("end-1c").split(".")[0]) > 500:
-                    self.log.delete("1.0", "100.0")
-                self.log.see("end")
-                self.log.configure(state="disabled")
-            elif kind == "checks":
-                self.checks = args[0]
-                self.checking = False
-                self.check_table.delete(*self.check_table.get_children())
-                for c in self.checks:
-                    self.check_table.insert("", "end", values=(c["detail"], "جاهز" if c["ok"] else "غير جاهز", c["name"]))
-                try:
-                    write_json(data_root() / "readiness.json", {"checks": self.checks})
-                except OSError:
-                    pass
-                if self.finishing:
-                    self.finishing = False
-                    if all(c["ok"] for c in self.checks) and self.bridge and self.bridge.status()["connected"]:
-                        self.exit_code = 0
-                        self.root.destroy()
-                        return
+            if kind == "checks":
+                self.checks, self.checking = args[0], False
+                failures = [c for c in self.checks if not c["ok"]]
+                self.logs.extend(c["name"] + ": " + c["detail"] for c in self.checks)
+                self.status.set("ابدأ بالزر ١ لفتح الموقع." if not failures else "لم يكتمل التجهيز: " + ", ".join(c["name"] for c in failures))
+            elif kind == "catalog":
+                self.entries, self.scan_meta = args[0], args[1]
+                self._update_table()
+                self.status.set(self.scan_meta.get("note", "جارٍ الفحص والتنزيل…"))
             elif kind == "episode":
-                ep, value = args
-                if self.table.exists(str(ep)):
-                    current = list(self.table.item(str(ep), "values"))
-                    current[0] = value
-                    self.table.item(str(ep), values=current)
-                    self.table.see(str(ep))
-                self.footer.set(f"الحلقة {ep}: {value}")
+                self.row_status[args[0]] = args[1]
+                self._update_table()
             elif kind == "progress":
-                ep, percent = args
-                self.progress["value"] = percent
-                self.footer.set(f"الحلقة {ep}: {percent:.1f}%")
+                self.progress["value"] = args[1]
+                self.status.set(f"تنزيل الحلقة {args[0]} — {args[1]:.1f}%")
             elif kind == "done":
-                results, cancelled = args
-                ok = sum(r["status"] == "مكتمل ومفحوص" for r in results)
-                self.footer.set(f"{'توقف التنزيل' if cancelled else 'انتهت الدفعة'} • مكتمل ومفحوص: {ok} • فاشل أو متوقف: {len(results)-ok}")
-        connected = self.bridge is not None and self.bridge.status()["connected"]
-        self.connection.set("إضافة Edge متصلة ومتحقق منها" if connected else "الإضافة غير متصلة — افتح نافذتها للتحقق")
-        self.connection_label.configure(foreground="#047857" if connected else MUTED)
-        ready = bool(self.checks) and all(c["ok"] for c in self.checks) and not self.checking
-        if self.setup:
-            self.finish_button.configure(state="normal" if ready and connected else "disabled")
-        running = self.downloads.running
-        self.download_button.configure(state="disabled" if self.setup or running else "normal")
-        self.import_button.configure(state="disabled" if running else "normal")
-        self.stop_button.configure(state="normal" if running else "disabled")
+                self._update_table()
+            elif kind == "extension_done":
+                self.installing = False
+                self.status.set("جارٍ التحقق من الملحق؛ سيظهر جاهز تلقائيًا.")
+            elif kind == "extension_error":
+                self.installing = False
+                self.logs.append(redact(args[0]))
+                self.status.set(args[0][:190])
+                self.fallback.pack(fill="x", before=self.table.master, pady=(3, 7))
+            elif kind == "status":
+                self.status.set(args[0])
+            elif kind in ("log", "error"):
+                self.logs.append(redact(str(args[-1])))
+                if kind == "error":
+                    self.status.set(args[0])
+        state = self.bridge.status() if self.bridge else {"connected": False, "command_error": ""}
+        connected = state["connected"]
+        self.connection.set("الملحق جاهز ومتصل تلقائيًا" if connected else "أضف الملحق من الزر ٢ — دون رمز ربط")
+        if connected:
+            self.fallback.pack_forget()
+        if state.get("command_error"):
+            self.status.set(state["command_error"])
+            if self.automatic.enabled:
+                threading.Thread(target=self.automatic.stop, daemon=True).start()
+        active = self.automatic.enabled or self.automatic.queue.running
+        if active and self.scan_meta.get("paused") and not self.automatic.queue.running:
+            self.automatic.enabled = False
+            self.status.set(self.scan_meta.get("note", "توقف الفحص؛ افتح الحلقة المطلوبة ثم اضغط بدء التنزيل."))
+        elif active and self.scan_meta.get("finished") and not self.automatic.queue.running:
+            with self.automatic.lock:
+                pending = [e for e in self.entries if e.media_url and not self.automatic._is_complete(e) and self.automatic.submitted.get(e.episode) != e.media_url]
+                if not pending:
+                    self.automatic.enabled = False
+                    done = self._update_table()
+                    self.status.set(f"انتهت المحاولة: تم تنزيل {done} من {len(self.entries)}. " + ("يمكنك إعادة المحاولة لاحقًا." if done < len(self.entries) else "جميع المقاطع محفوظة."))
+        self.step_buttons[1].configure(state="disabled" if self.installing or not self._ready() else "normal")
+        self.step_buttons[2].configure(state="disabled" if active or state.get("pending_kind") == "stop" or not self._ready() else "normal")
+        self.stop_button.configure(state="normal" if active else "disabled")
         self.root.after(250, self._poll)
 
     def close(self):
-        if self.downloads.running:
-            if not messagebox.askyesno("إيقاف التنزيل", "إيقاف التنزيل وحفظ الملفات الجزئية قبل الإغلاق؟", parent=self.root):
-                return
-            self.stop_download()
-            self._wait_close()
+        if self.closed:
             return
-        self.root.destroy()
-
-    def _wait_close(self):
-        if self.downloads.running:
-            self.root.after(200, self._wait_close)
-        else:
-            self.root.destroy()
+        self.stop_download()
+        deadline = time.monotonic() + 3
+        def finish():
+            if self.automatic.queue.running and time.monotonic() < deadline:
+                self.root.after(150, finish)
+            else:
+                self.closed = True
+                self.root.destroy()
+        self.root.after(300, finish)
 
     def cleanup(self):
+        self.automatic.close()
         if self.bridge:
             self.bridge.close()

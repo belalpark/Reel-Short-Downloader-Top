@@ -7,14 +7,12 @@ button{width:100%;border:0;border-radius:9px;padding:11px 12px;margin-top:8px;co
 button.secondary{background:#33455f}button.stop{background:#943b40}input{margin-left:6px}label{display:block;font-size:12px;line-height:1.7;margin:10px 0}#error{color:#ffb2b2;font-size:12px;white-space:pre-wrap}#explain{color:#b0f0ca}
 </style></head>
 <body>
-<h1>🎬 Reel Short · Scanner v5.3.1</h1>
+<h1>🎬 Reel Short · Scanner v5.4.0</h1>
 <section style="background:#1b2a40;padding:12px;border-radius:10px;margin:12px 0">
-<strong>ربط تطبيق Windows</strong>
-<label>رمز الربط الظاهر في التطبيق:
-<input id="desktopCode" type="text" inputmode="numeric" maxlength="8" autocomplete="off" dir="ltr" style="display:block;width:90%;padding:9px;margin-top:7px"></label>
-<button id="desktopPair">ربط التطبيق</button>
-<p id="desktopStatus" role="status">افتح التطبيق ثم أدخل رمز الربط.</p>
-</section>
+<strong>التحكم من تطبيق Windows</strong>
+<p id="desktopStatus" role="status">الاتصال بالبرنامج تلقائي؛ لا يوجد رمز ربط.</p>
+<p>افتح المسلسل، ثم اضغط «بدء التنزيل» في التطبيق. تصل النتائج إليه تلقائيًا.</p>
+</section><details><summary>أدوات إضافية</summary>
 <p>افتح صفحة حلقات مسلسل في ReelShort. تفحص الإضافة روابط الصفحات بالتتابع وتقرأ روابط الفيديو المنشورة في بيانات الصفحات، وتشخّص طلبات HLS الظاهرة أثناء التشغيل التي يسمح حسابك بالوصول إليها.</p>
 <label><input type="checkbox" id="paid" checked> فحص صفحات الحلقات المدفوعة أيضًا عبر وصول حسابي الحالي (لا ينقر على زر شراء أو فتح القفل)</label>
 <label>مهلة بدء تشغيل كل حلقة:
@@ -36,6 +34,7 @@ button.secondary{background:#33455f}button.stop{background:#943b40}input{margin-
 <button id="txt" class="secondary">تنزيل TXT بروابط الفيديو المكتشفة</button>
 <p id="error"></p>
 <small>الحلقات التي لا يبدأ تشغيلها خلال المهلة تُوقف الفحص لتشغيلها يدويًا. مصدر HLS المرصود غير مؤكد التطابق، ولا يتحول تلقائيًا إلى رابط تنزيل. سيُحفظ فهرس تلقائيًا داخل Downloads/Drama_Scanner بعد اكتمال الفحص. لا تفتح مسلسلًا آخر أثناء المسح. خيار VIP مفعّل افتراضيًا بناءً على طلبك، لكنه لا يفتح حلقات مقفلة. عند توقف الانتقال افتح الحلقة يدويًا ثم استأنف، أو تجاوزها. ملف HLS منفصل يحتوي على مرشحات غير مؤكدة؛ قد تتضمن الروابط رموز وصول مؤقتة، فلا تشاركه. لا تثبت هذه الطريقة السماح بالتنزيل أو عدم وجود DRM.</small>
+</details>
 <script src="export_core.js"></script>
 <script src="csv_importer.js"></script>
 <script src="popup.js"></script>

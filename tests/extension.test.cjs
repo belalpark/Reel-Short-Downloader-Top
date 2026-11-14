@@ -11,6 +11,19 @@ function load(...files) {
   return ctx;
 }
 const ID='0123456789abcdef01234567';
+test('automatic retries visit only missing explicit media and stop after three passes',()=>{
+  const {DramaRetryPlan:R}=load('retry_plan.js');
+  const state={autoMode:true,total:3,rows:{'1':{mediaUrl:'https://cdn.example.org/1.mp4'},'2':{hlsCandidates:['https://cdn.example.org/2.m3u8']}},autoPass:1,maxPasses:99};
+  assert.deepEqual(Array.from(R.missing(state)),[2,3]);
+  assert.equal(R.plan(state).episode,2);
+  assert.equal(R.plan(state).pass,2);
+  state.autoPass=3;assert.equal(R.plan(state),null);
+});
+test('rate limiting and complete scans never schedule refreshes',()=>{
+  const {DramaRetryPlan:R}=load('retry_plan.js');
+  assert.equal(R.plan({autoMode:true,total:1,rows:{},rateLimited:true}),null);
+  assert.equal(R.plan({autoMode:true,total:1,rows:{'1':{mediaUrl:'https://cdn.example.org/1.mp4'}}}),null);
+});
 const URL1=`https://www.reelshort.com/episodes/episode-1-test-${ID}`;
 function index(count=45) {
   return 'SeriesID,SeriesTitle,Episode,TotalEpisodes,PageURL,MediaURL\r\n' +

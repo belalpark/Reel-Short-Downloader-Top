@@ -19,6 +19,7 @@ function csv(state) {
 }
 async function save(state) {
   if (!state || !/^[a-f\d]{24}$/i.test(state.seriesId) || !Number.isInteger(state.total) || state.total>150 || state.total<1 || !state.rows || typeof state.rows!=='object') throw Error('Invalid scan');
+  if(state.autoMode)return ReelDesktop.publish(state);
   const pathname=`Drama_Scanner/${safeName(state.title)}_${state.seriesId}/series_index.csv`;
   const uri='data:text/csv;charset=utf-8,'+encodeURIComponent(csv(state));
   const csvId=await chrome.downloads.download({url:uri,filename:pathname,conflictAction:'overwrite',saveAs:false});

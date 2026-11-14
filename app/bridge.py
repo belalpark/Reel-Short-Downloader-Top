@@ -1,4 +1,4 @@
-"""A paired, loopback-only readiness channel. It never accepts download commands."""
+"""Authenticated local bridge with automatic setup, scan commands and a fixed CSV inbox."""
 from __future__ import annotations
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,6 +12,7 @@ import time
 
 from . import EXTENSION_VERSION, VERSION
 from .paths import read_json, write_json
+from .automatic import Inbox, series_from_page
 
 PORT = 18765
 STALE_SECONDS = 75
@@ -19,7 +20,7 @@ ORIGIN = re.compile(r"^chrome-extension://([a-p]{32})$")
 
 
 class Bridge:
-    def __init__(self, credentials: Path, port: int = PORT):
+    def __init__(self, credentials: Path, port: int = PORT, inbox: Path | None = None):
         self.port = port
         self.credentials = credentials
         self.lock = threading.Lock()
@@ -33,6 +34,12 @@ class Bridge:
         self.extension_id = str(saved.get("extension_id", ""))
         self.server = None
         self.thread = None
+        self.inbox = Inbox(inbox or credentials.parent / "Inbox")
+        self.pending_command = None
+        self.active_run_id = ""
+        self.active_series_id = ""
+        self.active_page = ""
+        self.command_error = ""
 
     def enable_pairing(self) -> str:
         with self.lock:
@@ -44,7 +51,18 @@ class Bridge:
     def status(self) -> dict:
         with self.lock:
             age = time.monotonic() - self.last_seen if self.last_seen else None
-            return {"connected": age is not None and age < STALE_SECONDS and self.browser == "Edge", "browser": self.browser, "age_seconds": round(age, 1) if age is not None else None, "extension_version": EXTENSION_VERSION}
+            return {"connected": age is not None and age < STALE_SECONDS and self.browser == "Edge", "browser": self.browser, "age_seconds": round(age, 1) if age is not None else None, "extension_version": EXTENSION_VERSION, "page_url": self.active_page, "command_error": self.command_error, "pending_kind": self.pending_command["kind"] if self.pending_command else ""}
+
+    def command(self, kind: str, series_id: str = "") -> str:
+        if kind not in ("start", "stop"):
+            raise ValueError("Unsupported command")
+        with self.lock:
+            command_id = secrets.token_hex(16)
+            self.pending_command = {"id": command_id, "kind": kind, "series_id": series_id}
+            self.command_error = ""
+            if kind == "start":
+                self.active_run_id, self.active_series_id = command_id, series_id
+            return command_id
 
     def receive(self, path: str, origin: str, auth: str, body: dict, user_agent: str) -> tuple[int, dict]:
         match = ORIGIN.fullmatch(origin)
@@ -65,9 +83,14 @@ class Bridge:
                 write_json(self.credentials, {"token": token, "extension_id": match[1]})
                 self.extension_id, self.token = match[1], token
                 self.pair_code = ""
-            elif path == "/heartbeat":
-                if not self.token or not hmac.compare_digest(auth, "Bearer " + self.token) or self.extension_id != match[1]:
+            elif path in ("/connect", "/heartbeat", "/exchange", "/snapshot", "/ack"):
+                if not self.token or not hmac.compare_digest(auth, "Bearer " + self.token):
                     return 401, {"error": "pairing_required"}
+                if path == "/connect" and not self.extension_id:
+                    self.extension_id = match[1]
+                    write_json(self.credentials, {"token": self.token, "extension_id": self.extension_id})
+                if self.extension_id != match[1]:
+                    return 401, {"error": "unexpected_extension"}
             else:
                 return 404, {"error": "not_found"}
             self.last_seen = time.monotonic()
@@ -75,6 +98,23 @@ class Bridge:
             reply = {"ok": True, "appVersion": VERSION, "browser": self.browser}
             if path == "/pair":
                 reply["token"] = self.token
+            if path == "/exchange":
+                page = str(body.get("pageUrl", ""))[:4096]
+                if page.startswith("https://www.reelshort.com/"):
+                    self.active_page = page
+                if self.pending_command and (not self.pending_command["series_id"] or series_from_page(page) == self.pending_command["series_id"]):
+                    reply["command"] = dict(self.pending_command)
+            if path == "/ack" and self.pending_command and body.get("commandId") == self.pending_command["id"]:
+                self.command_error = str(body.get("error", ""))[:250]
+                self.pending_command = None
+            if path == "/snapshot":
+                state = body.get("state")
+                if not isinstance(state, dict) or state.get("seriesId") != self.active_series_id or state.get("desktopCommandId") != self.active_run_id:
+                    return 409, {"error": "unexpected_scan_session"}
+                try:
+                    self.inbox.save(state, self.active_run_id)
+                except ValueError:
+                    return 422, {"error": "invalid_episode_index"}
             return 200, reply
 
     def start(self) -> None:
@@ -127,7 +167,7 @@ class Bridge:
                     return
                 try:
                     raw_length = self.headers.get("Content-Length", "")
-                    if not raw_length.isdecimal() or not 0 < int(raw_length) <= 2048 or self.headers.get("Transfer-Encoding"):
+                    if not raw_length.isdecimal() or not 0 < int(raw_length) <= 2 * 1024 * 1024 or self.headers.get("Transfer-Encoding"):
                         raise ValueError()
                     if self.headers.get_content_type() != "application/json":
                         raise ValueError()

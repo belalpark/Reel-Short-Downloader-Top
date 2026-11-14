@@ -98,15 +98,17 @@ jobs:
           if (-not (Test-Path $iscc)) { throw 'Inno Setup 6 compiler is missing from runner' }
           & $iscc installer/ReelShortDownloaderTop.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
-      - name: Test installer refusal without activated extension
+      - name: Test installer and bundled requirements
         shell: pwsh
         run: ./scripts/Test-Installer.ps1
-      - name: Test interactive refusal, retry and uninstall
+      - name: Test Edge extension installation without a PIN
+        run: python -m scripts.test_edge_setup
+      - name: Test interactive installation and normal app launch
         run: python -m scripts.test_installer_ui
       - name: Create portable archive and checksums
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/ReelShortDownloaderTop -DestinationPath release/ReelShortDownloaderTop-Portable-0.1.0-win-x64.zip
+          Compress-Archive -Path dist/ReelShortDownloaderTop -DestinationPath release/ReelShortDownloaderTop-Portable-0.2.0-win-x64.zip
           Get-ChildItem release -File | ForEach-Object {
             $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $($_.Name)"
@@ -140,5 +142,6 @@ jobs:
           prerelease: true
           files: release/*
           body: |
-            Windows preview build. Automated checks cover the package runtime, GUI startup and installer refusal without activation.
-            A successful interactive installation and playback on a real ReelShort account still require manual acceptance. This is not a verified production release.
+            Windows preview with a three-step interface, automatic extension authorization and inbox downloads.
+            Automated checks cover the package, installer, normal Edge extension setup and offline retry/cancel behavior.
+            Real ReelShort account playback and Windows 10/11 acceptance remain separate requirements.

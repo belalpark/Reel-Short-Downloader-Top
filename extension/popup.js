@@ -146,20 +146,10 @@ document.getElementById('candidates').addEventListener('click',()=>{
 });
 
 const desktopStatus=document.getElementById('desktopStatus');
-function renderDesktop(result) {
-  desktopStatus.textContent=result?.ok && result.browser==='Edge' ? 'متصل بتطبيق Windows. ارجع إلى التطبيق لإتمام التحقق.' :
-    result?.ok ? 'تم الربط؛ افتح الإضافة داخل Microsoft Edge للتحقق.' :
-    'غير متصل. افتح التطبيق وتحقق من الرمز؛ عند انتهاء صلاحيته اختر رمزًا جديدًا.';
+async function refreshDesktop(){
+ try{
+  const result=await chrome.runtime.sendMessage({type:'DRAMA_DESKTOP_STATUS'});
+  desktopStatus.textContent=result?.ok?'متصل تلقائيًا بالبرنامج. ارجع إلى التطبيق واضغط بدء التنزيل.':'افتح التطبيق واستخدم زر إضافة الملحق. الاتصال تلقائي دون رمز.';
+ }catch(_){desktopStatus.textContent='افتح التطبيق؛ سيُستأنف الاتصال تلقائيًا.';}
 }
-document.getElementById('desktopPair').addEventListener('click',async()=>{
-  const code=document.getElementById('desktopCode').value.trim();
-  if(!/^\d{8}$/.test(code)){desktopStatus.textContent='أدخل رمز الربط المكون من 8 أرقام.';return;}
-  try {renderDesktop(await chrome.runtime.sendMessage({type:'DRAMA_DESKTOP_PAIR',code}));}
-  catch (_) {renderDesktop(null);}
-});
-async function refreshDesktop() {
-  try {renderDesktop(await chrome.runtime.sendMessage({type:'DRAMA_DESKTOP_STATUS'}));}
-  catch (_) {renderDesktop(null);}
-}
-refreshDesktop();
-setInterval(refreshDesktop,8000);
+refreshDesktop();setInterval(refreshDesktop,8000);
