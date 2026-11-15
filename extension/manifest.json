@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Reel Short Downloader Top — Scanner v5.4.0",
-  "version": "5.4.0",
-  "description": "Indexes episode pages and passively diagnoses playback and HLS candidates from the ReelShort tab. No DRM, paywall or decryption bypass.",
+  "name": "Reel Short Downloader Top \u2014 Scanner v5.4.1",
+  "version": "5.4.1",
+  "description": "Collects accessible episode sources with verified playback and HLS segment matching.",
   "permissions": [
     "storage",
     "activeTab",
@@ -19,9 +19,18 @@
         "https://www.reelshort.com/*"
       ],
       "js": [
+        "hls_observer.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://www.reelshort.com/*"
+      ],
+      "js": [
         "scanner_core.js",
-        "hls_observer.js",
         "playback_probe.js",
+        "hls_source.js",
         "retry_plan.js",
         "page_agent.js",
         "desktop_poll.js"

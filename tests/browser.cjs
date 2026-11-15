@@ -128,7 +128,7 @@ function fixture(n,id){
     await popup.goto(`chrome-extension://${extId}/popup.html`);
     await popup.screenshot({path:path.join(OUT,'extension-popup.png'),fullPage:true});
     assert.equal(errors.length,0,errors.join('\n'));
-    fs.writeFileSync(path.join(OUT,'browser.json'),JSON.stringify({browser:await context.browser().version(),extensionVersion:'5.4.0',automaticConnection:true,pairingCodeRequired:false,manualCsvSelection:false,backgroundHeartbeat:true,explicitMedia:3,queuedEpisodes:queued,missingOnlyVisits:[1,1,2],unavailablePasses:unavailable.autoPass,cancelPreventsRefresh:true,appRestartStopsOldScan:true,restartNeedsManualReset:false,cachedMediaRefreshedOnNewStart:true,realAccountTested:false,errors},null,2));
+    fs.writeFileSync(path.join(OUT,'browser.json'),JSON.stringify({browser:await context.browser().version(),extensionVersion:'5.4.1',automaticConnection:true,pairingCodeRequired:false,manualCsvSelection:false,backgroundHeartbeat:true,explicitMedia:3,queuedEpisodes:queued,missingOnlyVisits:[1,1,2],unavailablePasses:unavailable.autoPass,cancelPreventsRefresh:true,appRestartStopsOldScan:true,restartNeedsManualReset:false,cachedMediaRefreshedOnNewStart:true,realAccountTested:false,errors},null,2));
     console.log('Offline integration passed: no-PIN connection, inbox watcher, missing-only refresh, bounded retries, cancellation.');
   }catch(error){
     if(worker)try{fs.writeFileSync(path.join(OUT,'failed-state.json'),JSON.stringify(await worker.evaluate(async()=>(await chrome.storage.local.get('dramaScannerV5Current')).dramaScannerV5Current),null,2));}catch(_){}

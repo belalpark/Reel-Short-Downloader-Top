@@ -69,6 +69,24 @@ class AutomaticTests(unittest.TestCase):
         path = Inbox(self.root / 'Inbox').save(value, 'run')
         self.assertFalse(any(x.media_url for x in load_catalog(path)))
 
+    def test_verified_playback_hls_is_queued_with_its_diagnostics(self):
+        value = state('run', 0)
+        value['rows']['3'].update(mediaUrl='https://v-mps.crazymaplestudios.com/vod-100/episode.m3u8?token=fixture',
+            sourceType='playback_hls', status='media_found', playbackStatus='playback_verified')
+        path = Inbox(self.root / 'Inbox').save(value, 'run')
+        entries = load_catalog(path)
+        self.assertEqual(entries[2].source_type, 'playback_hls')
+        controller = self.controller()
+        controller.begin(SID, 'run')
+        controller.tick()
+        self.assertEqual([e.episode for e in controller.queue.start.call_args.args[0]], [3])
+
+    def test_missing_source_keeps_the_actual_reason_in_the_automatic_inbox(self):
+        value = state('run', 0)
+        value['rows']['1'].update(status='hls_duration_mismatch', playbackStatus='playback_verified')
+        entries = load_catalog(Inbox(self.root / 'Inbox').save(value, 'run'))
+        self.assertEqual(entries[0].source_status, 'hls_duration_mismatch')
+
     def test_wrong_scan_session_does_not_write(self):
         inbox = Inbox(self.root / 'Inbox')
         with self.assertRaises(ValueError):

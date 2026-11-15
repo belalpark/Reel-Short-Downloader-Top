@@ -68,7 +68,8 @@ class Inbox:
                 title = "'" + title
             rows.append({"SeriesID": sid, "SeriesTitle": title, "Episode": ep, "TotalEpisodes": total,
                          "PageURL": page, "MediaURL": str(item.get("mediaUrl", "")),
-                         "PlaybackStatus": str(item.get("playbackStatus", "not_checked"))[:100]})
+                         "PlaybackStatus": str(item.get("playbackStatus", "not_checked"))[:100],
+                         "SourceStatus": str(item.get("status", ""))[:100], "SourceType": str(item.get("sourceType", ""))[:100]})
         self.folder.mkdir(parents=True, exist_ok=True)
         target = self.folder / (sid + ".csv")
         with self.lock:

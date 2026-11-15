@@ -1,4 +1,4 @@
-/* Episode indexing plus HLS request diagnostics from resource timing. No payment/DRM bypass. */
+/* Index accessible episodes and verify observed HLS against the active player. */
 (() => {
   'use strict';
   if (globalThis.__dramaScanV5Loaded) return;
@@ -154,29 +154,43 @@
       row.hlsCandidates=[...new Set([...(old.hlsCandidates||[]),...distinct.unique])].slice(0,12);
       row.hlsObservedAt=new Date().toISOString();
     }
-    row.status=row.mediaUrl?'media_found':row.hlsCandidates.length?'playback_verified_hls_unverified':'playback_verified_no_hls';
+    const verified=globalThis.DramaHLSSource ? await globalThis.DramaHLSSource.resolve({
+      video:()=>document.querySelector('video'),episode,rows:state.rows,since:entryEpoch,
+      previous:state.previousPlayback,timeoutMs:row.mediaUrl?1500:7000,
+      cancelled:()=>cancelled||!ownSeries(state.seriesId)||C.episodeNumber(location.href)!==episode
+    }):{ok:false,reason:'hls_not_observed'};
+    if(cancelled||verified.reason==='cancelled')return;
+    if(verified.ok){
+      row.verifiedHlsUrl=verified.mediaUrl;
+      row.hlsMatchedSegments=verified.matchedSegments;
+      row.hlsDuration=verified.duration;
+      if(!row.mediaUrl){row.mediaUrl=verified.mediaUrl;row.sourceType='playback_hls';}
+    }
+    if(verified.reason==='hls_rate_limited'){state.rateLimited=true;pause(state,'الموقع يطلب الانتظار. توقف الفحص؛ حاول لاحقًا.');}
+    row.status=row.mediaUrl?'media_found':verified.reason;
     row.checkedAt=new Date().toISOString();
     if (info?.title && cleanTitle(info.title).length>3 && (!state.title||state.title==='Series')) state.title=cleanTitle(info.title);
-    state.note=`الحلقة ${episode}: ${row.playbackStatus}، مرشحات HLS جديدة ${distinct.unique.length}، مكررة من حلقات أخرى ${distinct.overlap.length}`;
+    state.note=row.mediaUrl?`تم التقاط فيديو الحلقة ${episode}.`:`الحلقة ${episode}: ${row.status}`;
   }
   async function navigateEpisode(state, episode) {
     discover(state);
     const direct = state.rows[String(episode)]?.pageUrl;
-    if (direct && direct.startsWith('https://www.reelshort.com/') && C.episodeNumber(direct) === episode && C.seriesIdFromUrl(direct) === state.seriesId) {
-      if (direct.split('?')[0] !== location.href.split('?')[0]) {
-        location.assign(direct);
-        return 'navigating';
-      }
-      return 'ready';
-    }
     let btn = C.findEpisodeButton(document,episode);
     if (!btn) {
       const group = C.findGroupButton(document,episode);
       if (group) { group.click(); await sleep(350); if(cancelled)return 'cancelled'; btn = C.findEpisodeButton(document,episode); }
     }
-    if (!btn) return 'missing';
+    if (!btn) {
+      if(direct?.startsWith('https://www.reelshort.com/')&&C.episodeNumber(direct)===episode&&C.seriesIdFromUrl(direct)===state.seriesId){location.assign(direct);return 'navigating';}
+      return 'missing';
+    }
     if(btn.disabled || btn.getAttribute('aria-disabled')==='true')return 'access_unavailable';
     const before = location.href;
+    const player=document.querySelector('video');
+    state.previousPlayback=player?{src:String(player.currentSrc||player.src||''),duration:Number(player.duration)||0,position:Number(player.currentTime)||0}:null;
+    await persist(state);
+    if(cancelled)return 'cancelled';
+    state.epStartedAt=Date.now();state.episodeStartedFor=episode;
     btn.click(); // Only episode selection; NEVER click purchase/unlock controls.
     for (let i=0; i<35; i++) {
       await sleep(100);
@@ -325,7 +339,7 @@
       state.retryDelayMs=Number(options.retryDelayMs)||10000;
       state.desktopCommandId=String(options.desktopCommandId||'');
       if(previous?.seriesId===id){
-        state.rows=Object.fromEntries(Object.entries(previous.rows||{}).map(([key,row])=>[key,{...row,mediaUrl:'',hlsCandidates:[],status:'page_only',playbackStatus:'not_checked'}]));
+        state.rows=Object.fromEntries(Object.entries(previous.rows||{}).map(([key,row])=>[key,{...row,mediaUrl:'',verifiedHlsUrl:'',hlsCandidates:[],status:'page_only',playbackStatus:'not_checked'}]));
         // A new run refreshes signed URLs. Missing-only retries within that run
         // still retain all media already found; the app skips completed files.
       }

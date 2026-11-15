@@ -57,10 +57,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: npm install --no-save --package-lock=false playwright@1.56.1
+      - run: npm install --no-save --package-lock=false playwright@1.56.1 hls.js@1.6.13
       - run: npx playwright install --with-deps chromium
       - name: Offline browser integration
         run: node tests/browser.cjs
+      - name: Blob HLS regression after eight HTML sources
+        run: node tests/hls_browser.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -96,6 +98,8 @@ jobs:
           if ($p.ExitCode -ne 0 -or -not (Test-Path test-results/gui.json)) { throw 'Packaged GUI smoke test failed' }
       - name: Test real downloads using bundled tools
         run: python -m scripts.smoke_download --root dist/ReelShortDownloaderTop --report test-results/download.json
+      - name: Test real HLS download and decoded frames
+        run: python -m scripts.smoke_hls --root dist/ReelShortDownloaderTop --report test-results/hls-download.json
       - name: Compile installer
         shell: pwsh
         run: |
@@ -111,7 +115,7 @@ jobs:
       - name: Create portable archive and checksums
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/ReelShortDownloaderTop -DestinationPath release/ReelShortDownloaderTop-Portable-0.2.0-win-x64.zip
+          Compress-Archive -Path dist/ReelShortDownloaderTop -DestinationPath release/ReelShortDownloaderTop-Portable-0.2.1-win-x64.zip
           Get-ChildItem release -File | ForEach-Object {
             $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $($_.Name)"

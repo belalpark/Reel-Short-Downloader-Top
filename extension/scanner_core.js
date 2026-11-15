@@ -48,17 +48,19 @@
     const props = next?.props?.pageProps || {};
     const data = props.data || {};
     const urlId = seriesIdFromUrl(url);
-    const episode = episodeNumber(url) || Number(data.serial_number) || Number(props.serial_number) || 0;
-    const seriesId = str(data.book_id) || str(props.book_id) || urlId;
+    const dataId = str(data.book_id) || str(props.book_id);
+    const sameBook = !urlId || !dataId || dataId.toLowerCase() === urlId;
+    const episode = episodeNumber(url) || (sameBook ? Number(data.serial_number) || Number(props.serial_number) : 0) || 0;
+    const seriesId = urlId || dataId;
     if (!/^[a-f\d]{24}$/i.test(seriesId)) return null;
     if (expectedId && expectedId.toLowerCase() !== seriesId.toLowerCase()) return null;
     if (urlId && urlId !== seriesId.toLowerCase()) return null;
     if (expectedEpisode && expectedEpisode !== episode) return null;
-    const sameEpisode = (Number(data.serial_number) === episode) && (episode > 0);
+    const sameEpisode = sameBook && (Number(data.serial_number) === episode) && (episode > 0);
     let video = sameEpisode ? mediaUrl(data.video_url) : '';
-    if (!video && episode > 0) {
+    if (!video && episode > 0 && sameBook) {
       for (const item of findJsonLd(doc)) {
-        const entryEp = item.name && String(item.name).match(/\bEpisode\s*(\d+)/i);
+        const entryEp = item.name && String(item.name).match(/(?:\bEpisode|الحلقة)\s*(\d+)/i);
         // Avoid inheriting stale media URL from another episode.
         if (entryEp && Number(entryEp[1]) !== episode) continue;
         if (!sameEpisode && !entryEp) continue;
@@ -66,11 +68,12 @@
         if (video) break;
       }
     }
-    const title = str(data.book_title) || str(props.book_title) || str(doc.title).replace(/\s*\|\s*ReelShort.*$/i, '').replace(/^(?:الحلقة|Episode)\s*\d+\s*[-–:]\s*/i, '') || 'Series';
+    const title = (sameBook ? str(data.book_title) || str(props.book_title) : '') || str(doc.title).replace(/\s*\|\s*ReelShort.*$/i, '').replace(/^(?:الحلقة|Episode)\s*\d+\s*[-–:]\s*/i, '') || 'Series';
     return {
       seriesId: seriesId.toLowerCase(), title, episode,
-      total: Number(data.chapter_count) || 0,
-      paidStart: Number(data.paid_start) || 0,
+      total: sameBook ? Number(data.chapter_count) || 0 : 0,
+      paidStart: sameBook ? Number(data.paid_start) || 0 : 0,
+      metadataStale: !sameBook || !sameEpisode,
       pageUrl: documentUrl.origin + documentUrl.pathname,
       mediaUrl: video,
       source: video ? 'page_metadata' : 'page_only'

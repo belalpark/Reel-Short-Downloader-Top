@@ -117,3 +117,80 @@ test('STOP during playback wait survives all later storage writes',async()=>{
   assert.equal(state.current,1);
   assert.match(state.note,/توقف يدويًا/);
 });
+
+const STREAM='https://v-mps.crazymaplestudios.com/vod-100/'+'9'.repeat(32)+'/episode-sd.m3u8?token=fixture';
+const playlist='#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\nsegment0.ts?token=one\n#EXTINF:4,\nsegment1.ts?token=two\n#EXT-X-ENDLIST\n';
+function hlsContext(){return {playing:true,duration:8,episode:9,rows:{},since:10000,manifestStart:10000,sourceChanged:true,resources:[0,1].map((n)=>({url:new URL('segment'+n+'.ts?token=rotated',STREAM).href,absoluteStart:10010+n}))};}
+test('stale metadata from another series does not override the visible route',()=>{
+  const {DramaScannerCore:C}=load('scanner_core.js');
+  const doc={title:'Episode 9 - Current | ReelShort',getElementById:()=>({textContent:JSON.stringify({props:{pageProps:{data:{book_id:'f'.repeat(24),serial_number:1,chapter_count:52,book_title:'Wrong series',video_url:'https://cdn.example.org/wrong.mp4'}}}})}),querySelectorAll:()=>[]};
+  const info=C.extractDocument(doc,URL1.replace('episode-1-','episode-9-'),ID,9);
+  assert.equal(info.seriesId,ID);assert.equal(info.mediaUrl,'');assert.equal(info.total,0);assert.equal(info.metadataStale,true);assert.equal(info.title,'Current');
+});
+test('VOD HLS is matched to playback using duration and requested segments',()=>{
+  const {DramaHLSSource:S}=load('hls_observer.js','hls_source.js');
+  const parsed=S.parse(playlist,STREAM);const result=S.assess(parsed,hlsContext());
+  assert.equal(result.ok,true);assert.equal(result.matchedSegments,2);assert.equal(result.mediaUrl,STREAM);
+});
+test('a prefetched URL in an unverified candidate list does not claim the next episode',()=>{
+  const {DramaHLSSource:S}=load('hls_observer.js','hls_source.js');
+  const context=hlsContext();context.rows={'8':{hlsCandidates:[STREAM]}};
+  assert.equal(S.assess(S.parse(playlist,STREAM),context).ok,true);
+});
+test('a verified stream cannot be assigned to a second episode by rotating its query',()=>{
+  const {DramaHLSSource:S}=load('hls_observer.js','hls_source.js');
+  const context=hlsContext();context.rows={'8':{verifiedHlsUrl:STREAM.replace('fixture','old')}};
+  assert.equal(S.assess(S.parse(playlist,STREAM),context).reason,'hls_previous_episode');
+});
+test('playback alone or a fetched manifest without segments is insufficient',()=>{
+  const {DramaHLSSource:S}=load('hls_observer.js','hls_source.js');
+  const context=hlsContext();context.resources=[];
+  assert.equal(S.assess(S.parse(playlist,STREAM),context).reason,'hls_segments_not_observed');
+  context.playing=false;assert.equal(S.assess(S.parse(playlist,STREAM),context).ok,false);
+});
+test('a trailer with a different duration is not the current episode',()=>{
+  const {DramaHLSSource:S}=load('hls_observer.js','hls_source.js');
+  const context=hlsContext();context.duration=160.5;
+  assert.equal(S.assess(S.parse(playlist,STREAM),context).reason,'hls_duration_mismatch');
+});
+test('cached manifests need evidence that the player left its previous video',()=>{
+  const {DramaHLSSource:S}=load('hls_observer.js','hls_source.js');
+  const context=hlsContext();context.manifestStart=100;context.sourceChanged=false;
+  assert.equal(S.assess(S.parse(playlist,STREAM),context).reason,'hls_stale_playback');
+  context.sourceChanged=true;assert.equal(S.assess(S.parse(playlist,STREAM),context).ok,true);
+});
+test('two matching independent streams stay ambiguous',()=>{
+  const {DramaHLSSource:S}=load('hls_observer.js','hls_source.js');
+  assert.equal(S.select([{ok:true,group:'one',lastSegment:1},{ok:true,group:'two',lastSegment:2}]).reason,'hls_ambiguous');
+});
+test('DRM and unsafe playlist references are rejected without requesting keys',()=>{
+  const {DramaHLSSource:S}=load('hls_observer.js','hls_source.js');
+  for(const key of ['#EXT-X-KEY:METHOD=SAMPLE-AES,URI="key.bin"','#EXT-X-KEY:METHOD=AES-128,KEYFORMAT="com.apple.streamingkeydelivery",URI="key.bin"']){
+    assert.equal(S.parse(playlist.replace('#EXTM3U','#EXTM3U\n'+key),STREAM).reason,'hls_drm_protected');
+  }
+  assert.equal(S.parse(playlist.replace('segment0.ts?token=one','https://127.0.0.1/private'),STREAM).reason,'hls_unsafe_manifest');
+});
+test('live and iframe-only playlists are not treated as complete episode downloads',()=>{
+  const {DramaHLSSource:S}=load('hls_observer.js','hls_source.js');
+  assert.equal(S.parse(playlist.replace('#EXT-X-ENDLIST',''),STREAM).ok,false);
+  assert.equal(S.parse(playlist+'#EXT-X-I-FRAMES-ONLY\n',STREAM).ok,false);
+});
+test('resource observer captures media after the normal timeline buffer is full',()=>{
+  let observer;
+  const ctx=vm.createContext({URL,Date,performance:{timeOrigin:1000,getEntriesByType:()=>[]},PerformanceObserver:class{constructor(fn){observer=fn;}observe(options){assert.equal(options.buffered,true);}}});
+  vm.runInContext(fs.readFileSync(path.join(root,'hls_observer.js'),'utf8'),ctx);
+  observer({getEntries:()=>[{name:STREAM,startTime:9000},{name:new URL('segment0.ts',STREAM).href,startTime:9010}]});
+  assert.equal(ctx.DramaHLSObserver.recent(9500,11000).length,1);
+  assert.equal(ctx.DramaHLSObserver.resources(9500,11000).length,2);
+});
+
+test('a verification fetch cannot turn an old manifest into fresh player evidence',async()=>{
+  const ctx=load('hls_observer.js');let fetched=false,calls=0;const since=Date.now();
+  const resources=()=>[{url:STREAM,absoluteStart:fetched?Date.now():since-1000},...[0,1].map(n=>({url:new URL('segment'+n+'.ts',STREAM).href,absoluteStart:since+1+n}))];
+  ctx.DramaHLSObserver={...ctx.DramaHLSObserver,resources};ctx.AbortController=AbortController;
+  ctx.fetch=async url=>{fetched=true;calls++;return {ok:true,status:200,url,headers:{get:()=>null},text:async()=>playlist};};
+  vm.runInContext(fs.readFileSync(path.join(root,'hls_source.js'),'utf8'),ctx);
+  const video={paused:false,ended:false,readyState:4,currentSrc:'blob:old',duration:8,currentTime:4};
+  const result=await ctx.DramaHLSSource.resolve({video:()=>video,episode:9,rows:{},since,previous:{src:'blob:old',duration:8,position:4},timeoutMs:1000});
+  assert.equal(result.ok,false);assert.equal(result.reason,'hls_stale_playback');assert.equal(calls,1);
+});

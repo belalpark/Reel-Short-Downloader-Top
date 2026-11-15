@@ -230,11 +230,24 @@ class DesktopApp:
 
     def _update_table(self):
         done = available = 0
+        reasons = {
+            "hls_not_observed": "لم يُلتقط بث هذه الحلقة بعد",
+            "hls_ambiguous": "ظهرت مصادر متعددة؛ لم تثبت مطابقة الحلقة",
+            "hls_duration_mismatch": "مدة البث لا تطابق الحلقة",
+            "hls_previous_episode": "البث المرصود يخص حلقة سابقة",
+            "hls_stale_playback": "المشغّل لم ينتقل إلى فيديو الحلقة بعد",
+            "hls_segments_not_observed": "بانتظار تحميل مقاطع فيديو الحلقة",
+            "hls_access_denied": "تعذرت قراءة مصدر البث",
+            "hls_drm_protected": "بث محمي غير مدعوم",
+            "playback_not_started": "المشغّل لم يبدأ تشغيل الحلقة",
+            "video_element_missing": "مشغّل الفيديو لم يظهر",
+            "access_unavailable": "الموقع لم يتيح فتح الحلقة في هذه الجلسة",
+        }
         for item in self.entries:
             completed = self.automatic._is_complete(item)
             done += completed
             available += bool(item.media_url)
-            value = "مكتمل ومفحوص" if completed else self.row_status.get(item.episode, "بانتظار التنزيل" if item.media_url else "بانتظار رابط متاح")
+            value = "مكتمل ومفحوص" if completed else self.row_status.get(item.episode, "بانتظار التنزيل" if item.media_url else reasons.get(item.source_status or item.playback, "بانتظار التقاط الفيديو"))
             fields = (value, "متوفر" if item.media_url else "لم يظهر بعد", item.episode)
             if self.table.exists(str(item.episode)):
                 self.table.item(str(item.episode), values=fields)

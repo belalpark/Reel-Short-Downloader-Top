@@ -31,7 +31,7 @@
   }
   function sanitizedState(state){
     const rows={};
-    for(const [key,row] of Object.entries(state.rows||{}))rows[key]={episode:row.episode,pageUrl:row.pageUrl||'',mediaUrl:row.mediaUrl||'',playbackStatus:row.playbackStatus||'',status:row.status||''};
+    for(const [key,row] of Object.entries(state.rows||{}))rows[key]={episode:row.episode,pageUrl:row.pageUrl||'',mediaUrl:row.mediaUrl||'',playbackStatus:row.playbackStatus||'',status:row.status||'',sourceType:row.sourceType||''};
     return {seriesId:state.seriesId,title:state.title,total:state.total,rows,desktopCommandId:state.desktopCommandId,
       running:!!state.running,paused:!!state.paused,finished:!!state.finished,autoPass:state.autoPass||1,note:state.note||'',updatedAt:state.updatedAt||''};
   }
