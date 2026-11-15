@@ -259,7 +259,17 @@
         }
         state.note=`فحص الحلقة ${ep} (HTML وطلبات HLS)`;
         await persist(state);
-        a…105 tokens truncated…(1050); // Modest delay; no rapid-fire requests
+        await sleep(500);
+        if(cancelled) return;
+        await readCurrentPage(state,ep);
+        if(cancelled) return;
+        const latest=await load();
+        if (!state.running) { await persist(state); break; }
+        if (!latest?.running) break; // Preserve a STOP command sent during the playback wait.
+        state.current++;
+        discover(state);
+        await persist(state);
+        await sleep(1050); // Modest delay; no rapid-fire requests
       }
       const done=await load();
       if (done?.running && done.current > done.total && done.owner===token()) {

@@ -42,7 +42,8 @@ function html(n){
   const lines=readline.createInterface({input:child.stdout});
   const first=await Promise.race([once(lines,'line'),once(child,'exit').then(()=>{throw Error('Bridge exited');}),delay(10000).then(()=>{throw Error('Bridge startup timeout');})]);
   const settings=JSON.parse(first[0]);lines.on('line',line=>{const value=JSON.parse(line);if(value.queued)queued.push(...value.queued);});
-  context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,args:[`--disable-extensions-except=${settings.extension_path}`,`--load-extension=${settings.extension_path}`]});
+  const executablePath=process.env.HLS_BROWSER_EXECUTABLE;
+  context=await chromium.launchPersistentContext(profile,{...(executablePath?{executablePath}:{channel:'chromium'}),headless:true,args:[`--disable-extensions-except=${settings.extension_path}`,`--load-extension=${settings.extension_path}`]});
   context.on('weberror',event=>errors.push(event.error().message));
   const setup=await context.newPage();await setup.goto('chrome://extensions/');
   const extensions=await setup.evaluate(()=>new Promise(resolve=>chrome.developerPrivate.getExtensionsInfo({includeDisabled:true,includeTerminated:true},resolve)));
@@ -83,7 +84,7 @@ function html(n){
   const buffer=await reel.evaluate(()=>performance.getEntriesByType('resource').length);
   const late=await reel.evaluate(()=>performance.getEntriesByType('resource').some(e=>/00000000000000000000000000000009\/index.m3u8/.test(e.name)));
   assert.ok(buffer>=250);assert.equal(late,false,'HLS capture must work beyond the full browser timeline');
-  fs.writeFileSync(path.join(OUT,'hls-browser.json'),JSON.stringify({hlsJsVersion:require('hls.js/package.json').version,initialHtmlSources:8,hlsOnlySources:4,totalSources:12,queuedEpisodes:queued,blobPlayback:true,staleSpaMetadata:true,normalTimelineBufferFull:true,lateHlsAbsentFromTimeline:true,unverifiedPrefetchDidNotClaimNextEpisode:true,verifiedDurationAndSegments:true,passes:result.autoPass,realAccountDownloadTested:false},null,2));
+  fs.writeFileSync(path.join(OUT,'hls-browser.json'),JSON.stringify({browserVersion:context.browser().version(),hlsJsVersion:require('hls.js/package.json').version,initialHtmlSources:8,hlsOnlySources:4,totalSources:12,queuedEpisodes:queued,blobPlayback:true,staleSpaMetadata:true,normalTimelineBufferFull:true,lateHlsAbsentFromTimeline:true,unverifiedPrefetchDidNotClaimNextEpisode:true,verifiedDurationAndSegments:true,passes:result.autoPass,realAccountDownloadTested:false},null,2));
   console.log('HLS regression passed: 8 HTML sources plus 4 blob/HLS sources, full buffer, stale SPA metadata.');
  }catch(error){
   if(worker)try{fs.writeFileSync(path.join(OUT,'hls-failed-state.json'),JSON.stringify(await worker.evaluate(async()=>(await chrome.storage.local.get('dramaScannerV5Current')).dramaScannerV5Current)||null,null,2));}catch(_){}

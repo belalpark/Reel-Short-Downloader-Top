@@ -59,8 +59,14 @@ jobs:
           python-version: '3.12'
       - run: npm install --no-save --package-lock=false playwright@1.56.1 hls.js@1.6.13
       - run: npx playwright install --with-deps chromium
+      - name: Install Chrome for Testing with H.264 and AAC support
+        run: |
+          curl --fail --location --retry 2 https://storage.googleapis.com/chrome-for-testing-public/142.0.7444.175/linux64/chrome-linux64.zip --output /tmp/chrome-hls.zip
+          unzip -q /tmp/chrome-hls.zip -d /tmp/chrome-hls
       - name: Blob HLS regression after eight HTML sources
         run: node tests/hls_browser.cjs
+        env:
+          HLS_BROWSER_EXECUTABLE: /tmp/chrome-hls/chrome-linux64/chrome
       - name: Offline browser integration
         run: node tests/browser.cjs
       - uses: actions/upload-artifact@v4
