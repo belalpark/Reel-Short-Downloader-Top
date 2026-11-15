@@ -18,7 +18,7 @@ function html(n){
  <video id="movie" muted playsinline></video><h1 id="title">Episode ${n}</h1>
  ${Array.from({length:12},(_,i)=>`<button aria-label="الحلقة ${i+1}" onclick="render(${i+1})">${i+1}</button><a href="${page(i+1)}">episode ${i+1}</a>`).join(' ')}
  <script src="/fixture/hls.min.js"></script><script>
- let currentPlayer;
+ let currentPlayer;window.fixtureDiagnostics={events:[],supported:Hls.isSupported(),mseH264:MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"'),mseAAC:MediaSource.isTypeSupported('audio/mp4; codecs="mp4a.40.2"')};
  const link=n=>'https://v-mps.crazymaplestudios.com/vod-100/'+n.toString(16).padStart(32,'0')+'/index.m3u8?token=fixture-'+n;
  function render(n){
   if(currentPlayer)currentPlayer.destroy();
@@ -26,8 +26,9 @@ function html(n){
   document.title='Episode '+n+' - HLS fixture | ReelShort';document.querySelector('#title').textContent='Episode '+n;
   const video=document.querySelector('video');
   currentPlayer=new Hls({enableWorker:false,maxBufferLength:20});
+  currentPlayer.on(Hls.Events.ERROR,(_,data)=>window.fixtureDiagnostics.events.push({type:data.type,details:data.details,fatal:data.fatal,reason:data.reason,error:data.error?.message}));
   currentPlayer.loadSource(link(n));currentPlayer.attachMedia(video);
-  currentPlayer.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(()=>{}));
+  currentPlayer.on(Hls.Events.MANIFEST_PARSED,()=>video.play().catch(error=>window.fixtureDiagnostics.events.push({playError:error.message})));
   if(n===8)fetch(link(9)); // Unverified prefetch must not reserve episode 9 for episode 8.
  }
  (async()=>{await Promise.all(Array.from({length:270},(_,i)=>fetch('/fixture/fill?i='+i)));render(${n});})();
@@ -35,13 +36,14 @@ function html(n){
 }
 (async()=>{
  fs.mkdirSync(OUT,{recursive:true});const profile=fs.mkdtempSync(path.join(OUT,'hls-profile-'));
- let context,child,worker;const queued=[];
+ let context,child,worker,reel;const queued=[],errors=[];
  try{
   child=spawn(process.env.PYTHON||(process.platform==='win32'?'python':'python3'),['-m','scripts.bridge_fixture'],{cwd:ROOT,stdio:['pipe','pipe','inherit']});
   const lines=readline.createInterface({input:child.stdout});
   const first=await Promise.race([once(lines,'line'),once(child,'exit').then(()=>{throw Error('Bridge exited');}),delay(10000).then(()=>{throw Error('Bridge startup timeout');})]);
   const settings=JSON.parse(first[0]);lines.on('line',line=>{const value=JSON.parse(line);if(value.queued)queued.push(...value.queued);});
   context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,args:[`--disable-extensions-except=${settings.extension_path}`,`--load-extension=${settings.extension_path}`]});
+  context.on('weberror',event=>errors.push(event.error().message));
   const setup=await context.newPage();await setup.goto('chrome://extensions/');
   const extensions=await setup.evaluate(()=>new Promise(resolve=>chrome.developerPrivate.getExtensionsInfo({includeDisabled:true,includeTerminated:true},resolve)));
   const ext=extensions.find(x=>x.name.startsWith('Reel Short Downloader Top'));assert.ok(ext);
@@ -61,7 +63,7 @@ function html(n){
    if(fixture.segments[filename])return route.fulfill({headers,contentType:'video/mp2t',body:Buffer.from(fixture.segments[filename],'base64')});
    return route.fulfill({status:404,headers,body:'not a fixture'});
   });
-  const reel=await context.newPage();await reel.goto(page(1));
+  reel=await context.newPage();await reel.goto(page(1));
   await reel.waitForFunction(()=>document.querySelector('video')?.currentTime>0.2,null,{timeout:30000});
   assert.equal(await reel.locator('video').evaluate(v=>v.currentSrc.startsWith('blob:')),true);
   const state=()=>worker.evaluate(async()=>(await chrome.storage.local.get('dramaScannerV5Current')).dramaScannerV5Current);
@@ -84,7 +86,8 @@ function html(n){
   fs.writeFileSync(path.join(OUT,'hls-browser.json'),JSON.stringify({hlsJsVersion:require('hls.js/package.json').version,initialHtmlSources:8,hlsOnlySources:4,totalSources:12,queuedEpisodes:queued,blobPlayback:true,staleSpaMetadata:true,normalTimelineBufferFull:true,lateHlsAbsentFromTimeline:true,unverifiedPrefetchDidNotClaimNextEpisode:true,verifiedDurationAndSegments:true,passes:result.autoPass,realAccountDownloadTested:false},null,2));
   console.log('HLS regression passed: 8 HTML sources plus 4 blob/HLS sources, full buffer, stale SPA metadata.');
  }catch(error){
-  if(worker)try{fs.writeFileSync(path.join(OUT,'hls-failed-state.json'),JSON.stringify(await worker.evaluate(async()=>(await chrome.storage.local.get('dramaScannerV5Current')).dramaScannerV5Current),null,2));}catch(_){}
+  if(worker)try{fs.writeFileSync(path.join(OUT,'hls-failed-state.json'),JSON.stringify(await worker.evaluate(async()=>(await chrome.storage.local.get('dramaScannerV5Current')).dramaScannerV5Current)||null,null,2));}catch(_){}
+  if(reel)try{const diagnostics=await reel.evaluate(()=>({fixture:window.fixtureDiagnostics,video:[...document.querySelectorAll('video')].map(v=>({src:v.currentSrc,paused:v.paused,readyState:v.readyState,duration:v.duration,currentTime:v.currentTime,error:v.error?.message})),resources:performance.getEntriesByType('resource').map(e=>e.name).slice(-20)}));fs.writeFileSync(path.join(OUT,'hls-player-failure.json'),JSON.stringify({errors,...diagnostics},null,2));console.error(JSON.stringify({errors,...diagnostics}));}catch(_){}
   throw error;
  }finally{
   if(context)await context.close();if(child){child.stdin.end();child.kill();await Promise.race([once(child,'exit'),delay(3000)]);}

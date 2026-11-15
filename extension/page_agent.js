@@ -170,7 +170,7 @@
     row.status=row.mediaUrl?'media_found':verified.reason;
     row.checkedAt=new Date().toISOString();
     if (info?.title && cleanTitle(info.title).length>3 && (!state.title||state.title==='Series')) state.title=cleanTitle(info.title);
-    state.note=row.mediaUrl?`تم التقاط فيديو الحلقة ${episode}.`:`الحلقة ${episode}: ${row.status}`;
+    if(!state.rateLimited)state.note=row.mediaUrl?`تم التقاط فيديو الحلقة ${episode}.`:`الحلقة ${episode}: لم يتأكد رابط الفيديو؛ ستُعاد محاولة الناقص تلقائيًا.`;
   }
   async function navigateEpisode(state, episode) {
     discover(state);
@@ -259,17 +259,7 @@
         }
         state.note=`فحص الحلقة ${ep} (HTML وطلبات HLS)`;
         await persist(state);
-        await sleep(500);
-        if(cancelled) return;
-        await readCurrentPage(state,ep);
-        if(cancelled) return;
-        const latest=await load();
-        if (!state.running) { await persist(state); break; }
-        if (!latest?.running) break; // Preserve a STOP command sent during the playback wait.
-        state.current++;
-        discover(state);
-        await persist(state);
-        await sleep(1050); // Modest delay; no rapid-fire requests
+        a…105 tokens truncated…(1050); // Modest delay; no rapid-fire requests
       }
       const done=await load();
       if (done?.running && done.current > done.total && done.owner===token()) {
