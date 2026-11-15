@@ -24,6 +24,7 @@ function html(n){
   if(currentPlayer)currentPlayer.destroy();
   history.pushState({},'',${JSON.stringify(page(1))}.replace('episode-1-','episode-'+n+'-'));
   document.title='Episode '+n+' - HLS fixture | ReelShort';document.querySelector('#title').textContent='Episode '+n;
+  if(n<=8){const metadata=JSON.parse(document.querySelector('#__NEXT_DATA__').textContent);metadata.props.pageProps.data.serial_number=n;metadata.props.pageProps.data.video_url='https://cdn.example.org/'+n+'.mp4';document.querySelector('#__NEXT_DATA__').textContent=JSON.stringify(metadata);}
   const video=document.querySelector('video');
   currentPlayer=new Hls({enableWorker:false,maxBufferLength:20});
   currentPlayer.on(Hls.Events.ERROR,(_,data)=>window.fixtureDiagnostics.events.push({type:data.type,details:data.details,fatal:data.fatal,reason:data.reason,error:data.error?.message}));
@@ -73,6 +74,7 @@ function html(n){
   const result=await state();
   assert.equal(result.total,12);assert.equal(result.autoPass,1);
   assert.equal(Object.values(result.rows).filter(r=>r.mediaUrl).length,12);
+  for(let n=1;n<=8;n++)assert.equal(result.rows[String(n)].mediaUrl,'https://cdn.example.org/'+n+'.mp4');
   for(let n=9;n<=12;n++){
    assert.equal(result.rows[String(n)].sourceType,'playback_hls');
    assert.equal(result.rows[String(n)].mediaUrl,stream(n));
