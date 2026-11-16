@@ -1,0 +1,399 @@
+{
+  "date": "2026-11-16",
+  "app_version": "0.3.0",
+  "extension_version": "5.5.0",
+  "source_commit": "dff9f21b0765f8e1eb4fd0a98382e2693ce1293e",
+  "source_tree": "a89d8ed2a3c0033be7602728c46f95f9e31313ee",
+  "workflow_run": 43957207836,
+  "workflow_url": "https://github.com/belalpark/Reel-Short-Downloader-Top/actions/runs/43957207836",
+  "workflow_conclusion": "success",
+  "uploaded_source_tree_matches_local": true,
+  "legacy_v53_files_sha256_verified": 15,
+  "unit_tests": {
+    "python": 73,
+    "javascript": 29,
+    "operating_systems": [
+      "ubuntu-24.04",
+      "windows-2022"
+    ]
+  },
+  "library_browser": {
+    "syntheticSeries": 60,
+    "seededSourcesSkipped": 58,
+    "newSeriesCollected": 2,
+    "duplicateCatalogCardsDeduplicated": true,
+    "renderedShelfCrawled": true,
+    "landingPageUsesObservedEpisodeLink": true,
+    "offlineQueueItems": 60,
+    "noBrowserReopenedForValidLinks": true,
+    "oneFailedSourceRenewed": true,
+    "other59NotReopened": true,
+    "queuedItems": 61,
+    "realDownloadTool": false,
+    "realAccountTested": false
+  },
+  "patient_browser": {
+    "completedEpisodesSkipped": 46,
+    "navigationFailuresBeforeSuccess": 2,
+    "failedDownloadRetriedOnSameEpisode": true,
+    "freshCaptureOnSameUrl": true,
+    "queuedEpisodes": [
+      47,
+      47,
+      48
+    ],
+    "stopPreventsScheduledRefresh": true,
+    "backendRestartRetainsCompletedFiles": true,
+    "resumeOnlyEpisode48": true,
+    "finalCompleted": 48,
+    "realDownloadTool": false,
+    "realAccountTested": false
+  },
+  "legacy_bounded_browser_compatibility": {
+    "browser": "141.0.7390.37",
+    "extensionVersion": "5.5.0",
+    "automaticConnection": true,
+    "pairingCodeRequired": false,
+    "manualCsvSelection": false,
+    "backgroundHeartbeat": true,
+    "explicitMedia": 3,
+    "queuedEpisodes": [
+      1,
+      2,
+      3
+    ],
+    "missingOnlyVisits": [
+      1,
+      1,
+      2
+    ],
+    "unavailablePasses": 3,
+    "cancelPreventsRefresh": true,
+    "appRestartStopsOldScan": true,
+    "restartNeedsManualReset": false,
+    "cachedMediaRefreshedOnNewStart": true,
+    "realAccountTested": false,
+    "errors": []
+  },
+  "hls_browser": {
+    "browserVersion": "142.0.7444.175",
+    "hlsJsVersion": "1.6.13",
+    "initialHtmlSources": 8,
+    "hlsOnlySources": 4,
+    "totalSources": 12,
+    "queuedEpisodes": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "blobPlayback": true,
+    "staleSpaMetadata": true,
+    "normalTimelineBufferFull": true,
+    "lateHlsAbsentFromTimeline": true,
+    "unverifiedPrefetchDidNotClaimNextEpisode": true,
+    "verifiedDurationAndSegments": true,
+    "passes": 1,
+    "realAccountDownloadTested": false
+  },
+  "real_synthetic_library_download": {
+    "synthetic_series": 60,
+    "episodes_per_series": 1,
+    "actual_bundled_ytdlp": true,
+    "actual_bundled_ffprobe": true,
+    "actual_source_checks": 60,
+    "closed_after_completed": 30,
+    "restart_restored_download_intent": true,
+    "resume_only_remaining": 30,
+    "completed_files_requested_again": false,
+    "all_60_file_hashes_match": true,
+    "browser_required": false,
+    "real_account_tested": false
+  },
+  "real_synthetic_retry_download": {
+    "actual_bundled_ytdlp": true,
+    "actual_bundled_ffprobe": true,
+    "first_episode_checkpointed_before_second": true,
+    "invalid_output_released_for_repair": true,
+    "existing_video_recovers_missing_checkpoint": true,
+    "same_url_fresh_capture_retried": true,
+    "retry_obeys_cooldown": true,
+    "repaired_video_sha256_matches": true,
+    "reopen_downloads_completed_again": false,
+    "completed_episodes": [
+      1,
+      2
+    ],
+    "real_account_tested": false
+  },
+  "real_synthetic_hls_download": {
+    "actual_ytdlp_hls": true,
+    "actual_ffmpeg": true,
+    "actual_ffprobe": true,
+    "video_and_audio_present": true,
+    "decoded_frames_match_source": true,
+    "matched_frames": 80,
+    "episode": 9,
+    "duration_seconds": 8.034104,
+    "real_account_download_tested": false
+  },
+  "real_synthetic_direct_download": {
+    "actual_ytdlp": true,
+    "actual_ffprobe": true,
+    "first_download": "passed",
+    "repeat_download": "passed",
+    "fixture_sha256": "f17b15b9d78c31f3441df0f78dd4ba2b81303e6ab91332f56bec24e45ca399ad",
+    "account_tested": false
+  },
+  "gui": {
+    "gui_created": true,
+    "steps": [
+      1,
+      2,
+      3
+    ],
+    "manual_csv_required": false,
+    "pairing_code_required": false,
+    "edge_automation_imported": true,
+    "runtime_checks_completed": true,
+    "width": 984,
+    "height": 658
+  },
+  "library_gui": {
+    "synthetic_rows": 60,
+    "screenshot": "library.png",
+    "temporary_database": true,
+    "reviewed_at_984_by_620": true
+  },
+  "edge": {
+    "normal_edge_ui": true,
+    "single_click_install": true,
+    "pairing_code_required": false,
+    "edge_heartbeat_verified": true,
+    "isolated_test_profile": true,
+    "real_account_tested": false,
+    "extension_version": "5.5.0"
+  },
+  "runtime": {
+    "checks": [
+      {
+        "name": "Windows 10/11 x64",
+        "ok": true,
+        "detail": "Windows-2022Server-10.0.20348-SP0"
+      },
+      {
+        "name": "Microsoft Edge",
+        "ok": true,
+        "detail": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      },
+      {
+        "name": "Package integrity",
+        "ok": true,
+        "detail": "1273 files verified"
+      },
+      {
+        "name": "yt-dlp",
+        "ok": true,
+        "detail": "2026.10.26"
+      },
+      {
+        "name": "ffmpeg",
+        "ok": true,
+        "detail": "ffmpeg version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2000-2026 the FFmpeg developers"
+      },
+      {
+        "name": "ffprobe",
+        "ok": true,
+        "detail": "ffprobe version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2007-2026 the FFmpeg developers"
+      },
+      {
+        "name": "User data",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\AppData\\Local\\ReelShortDownloaderTop"
+      },
+      {
+        "name": "Downloads",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\Downloads\\Reel Short Downloader Top"
+      }
+    ],
+    "extension_setup": "application step 2"
+  },
+  "installed_runtime": {
+    "checks": [
+      {
+        "name": "Windows 10/11 x64",
+        "ok": true,
+        "detail": "Windows-2022Server-10.0.20348-SP0"
+      },
+      {
+        "name": "Microsoft Edge",
+        "ok": true,
+        "detail": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      },
+      {
+        "name": "Package integrity",
+        "ok": true,
+        "detail": "1273 files verified"
+      },
+      {
+        "name": "yt-dlp",
+        "ok": true,
+        "detail": "2026.10.26"
+      },
+      {
+        "name": "ffmpeg",
+        "ok": true,
+        "detail": "ffmpeg version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2000-2026 the FFmpeg developers"
+      },
+      {
+        "name": "ffprobe",
+        "ok": true,
+        "detail": "ffprobe version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2007-2026 the FFmpeg developers"
+      },
+      {
+        "name": "User data",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\AppData\\Local\\ReelShortDownloaderTop"
+      },
+      {
+        "name": "Downloads",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\Downloads\\Reel Short Downloader Top"
+      }
+    ],
+    "extension_setup": "application step 2"
+  },
+  "installer": {
+    "activationRequiredDuringInstall": false,
+    "runtimeExitCode": 0,
+    "installExitCode": 0,
+    "missingToolExitCode": 12,
+    "uninstallExitCode": 0
+  },
+  "interactive_installer": {
+    "real_installer": true,
+    "finish_after_core_requirements": true,
+    "pairing_wizard_required": false,
+    "application_launched": true,
+    "uninstall_passed": true,
+    "missing_tool_blocks_finish": true,
+    "incomplete_exit_code": 12
+  },
+  "missing_tool_integrity_check": {
+    "checks": [
+      {
+        "name": "Windows 10/11 x64",
+        "ok": true,
+        "detail": "Windows-2022Server-10.0.20348-SP0"
+      },
+      {
+        "name": "Microsoft Edge",
+        "ok": true,
+        "detail": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      },
+      {
+        "name": "Package integrity",
+        "ok": false,
+        "detail": "Missing package file: tools/ffmpeg.exe"
+      },
+      {
+        "name": "yt-dlp",
+        "ok": false,
+        "detail": "Package integrity check failed"
+      },
+      {
+        "name": "ffmpeg",
+        "ok": false,
+        "detail": "Package integrity check failed"
+      },
+      {
+        "name": "ffprobe",
+        "ok": false,
+        "detail": "Package integrity check failed"
+      },
+      {
+        "name": "User data",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\AppData\\Local\\ReelShortDownloaderTop"
+      },
+      {
+        "name": "Downloads",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\Downloads\\Reel Short Downloader Top"
+      }
+    ],
+    "extension_setup": "application step 2"
+  },
+  "installer_file": {
+    "name": "ReelShortDownloaderTop-Setup-0.3.0-win-x64.exe",
+    "size_bytes": 92534861,
+    "sha256": "a7c36dbc9eb4796c51bbf4ee8671e9a3c0fddbb080e0208d0ae9eb2768a4c01a",
+    "pe_header_verified": true,
+    "original_build_checksums_verified": true,
+    "delivery_run": 43958654823,
+    "artifact_id": 14271524528,
+    "artifact_sha256": "be42e3a364fe47213c35cf4e7c516a0b48df8b36c22feb6cc46a42d27adcf240"
+  },
+  "user_zip": {
+    "name": "ReelShortDownloaderTop-Setup-0.3.0-win-x64.zip",
+    "size_bytes": 92537939,
+    "sha256": "8b85a8147948a91540876570f646341b8dc766d61866674793c8b89b9b5f9640",
+    "crc_test_passed": true
+  },
+  "evidence_artifacts": [
+    {
+      "id": 14270994218,
+      "name": "browser-evidence",
+      "sha256": "6cde07f321c735d62baed889f02976cdbf46ff4e4eab3d26143a53acfa593f6e",
+      "download_digest_verified": true
+    },
+    {
+      "id": 14271419486,
+      "name": "windows-evidence",
+      "sha256": "56c57fc0b754cb83dd7150701147fbd484ce2c2e274a17260d24d04ff5d7245e",
+      "download_digest_verified": true
+    }
+  ],
+  "visual_review": [
+    "gui.png",
+    "library.png",
+    "edge-installed.png",
+    "installer-incomplete.png"
+  ],
+  "live_site_check": {
+    "rendered_catalog_links_observed": true,
+    "episode_and_movie_and_shelf_routes_observed": true,
+    "private_apis_requested": false,
+    "real_library_downloaded": false
+  },
+  "library_limits_configured": {
+    "series_per_discovery": 1000,
+    "pages_per_discovery": 40,
+    "total_server_catalog_guaranteed": false,
+    "permanent_urls_guaranteed": false
+  },
+  "release_published": false,
+  "real_user_account_download_tested": false,
+  "private_user_media_or_browser_screenshots_published": false,
+  "pending_acceptance": [
+    "Download a real authorized multi-series library and verify actual episode content",
+    "Upgrade installation with the user existing Windows 11 data",
+    "Windows 10/11 DPI 125/150 percent",
+    "Long download cancellation and .part resumption",
+    "Redirected Downloads folder and multi-hour retry/overnight soak"
+  ],
+  "resolved_verification_obstacles": [
+    "The first browser run found a path variable shadowing the Node path module in the new fixture; renamed it and reran the complete matrix.",
+    "Suspended browser renewal during extension repair while allowing ready downloads; added a regression test.",
+    "Changed catalog timeout to idle time with a per-page heartbeat so an active shelf crawl is not cut short."
+  ]
+}
