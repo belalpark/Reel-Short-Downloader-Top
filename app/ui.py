@@ -148,6 +148,9 @@ class DesktopApp:
             self.library_window = LibraryWindow(self)
 
     def collect_library(self):
+        if self.installing:
+            self.status.set('انتظر اكتمال إعادة ربط الملحق، ثم اجمع المكتبة.')
+            return
         if not self._ready() or not self.library_engine:
             self.status.set('لم يكتمل التجهيز؛ استخدم إعادة الربط والفحص.')
             return
@@ -178,6 +181,7 @@ class DesktopApp:
         if self.library_engine:
             self.library_engine.resume_collection = self.library_engine.collecting
             self.library_engine.stop_collection()
+            self.library_engine.suspend_browser = True
         self.stop_download(single_only=True)
         self.recheck()
         self.installing = self.return_after_install = True
@@ -404,6 +408,8 @@ class DesktopApp:
             self.fallback.pack_forget()
             if self.return_after_install and not self.installing:
                 self.return_after_install = False
+                if self.library_engine:
+                    self.library_engine.suspend_browser = False
                 self.root.lift()
                 self.root.focus_force()
                 if self.library_engine and self.library_engine.resume_collection:

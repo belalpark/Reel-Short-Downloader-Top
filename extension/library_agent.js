@@ -33,6 +33,8 @@
    const here=DramaLibraryCatalog.page(location.href,location.href);if(!job.visited.includes(here))job.visited.push(here);
    job.pages=job.pages.filter(p=>!job.visited.includes(p));
    if(!await active(job.id))return {ok:true};
+   const heartbeat=await chrome.runtime.sendMessage({type:'DRAMA_LIBRARY_CATALOG',jobId:job.id,items:[]});
+   if(!heartbeat?.ok)throw Error('تعذر متابعة الفهرس؛ استخدم إعادة الربط والفحص.');
    if(job.pages.length&&job.seen.length<1000){const next=job.pages.shift();await chrome.storage.local.set({[KEY]:job});if(await active(job.id))location.assign(next);}
    else{
     await chrome.runtime.sendMessage({type:'DRAMA_LIBRARY_CATALOG',jobId:job.id,items:[],done:true});

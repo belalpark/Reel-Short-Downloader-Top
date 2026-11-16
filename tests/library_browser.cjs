@@ -11,15 +11,15 @@ const episode=id=>`https://www.reelshort.com/ar/episodes/episode-1-library-${id}
 const movie=id=>`https://www.reelshort.com/ar/movie/library-${id}`;
 async function until(fn,label,timeout=150000){const end=Date.now()+timeout;while(Date.now()<end){if(await fn())return;await delay(100);}throw Error('Timed out: '+label);}
 function html(url){
- const path=new URL(url).pathname,id=path.match(/([a-f0-9]{24})(?:-|$)/)?.[1];
+ const pathname=new URL(url).pathname,id=pathname.match(/([a-f0-9]{24})(?:-|$)/)?.[1];
  if(!id){
-  const shelf=path.includes('/shelf/');
+  const shelf=pathname.includes('/shelf/');
   return '<!doctype html><title>Library catalog fixture</title>'+Array.from({length:shelf?30:60},(_,i)=>{
    const n=i+1,id=sid(n),href=n===59?movie(id):episode(id);
    return `<p><a href="${href}?playTime=1"><img alt="Library fixture ${n}"></a><a href="${href}">duplicate</a></p>`;
   }).join('')+(shelf?'':'<a href="https://www.reelshort.com/ar/shelf/library-fixture">More</a>');
  }
- if(path.includes('/movie/'))return `<!doctype html><title>Library landing</title><a href="${episode(id)}">Watch first episode</a>`;
+ if(pathname.includes('/movie/'))return `<!doctype html><title>Library landing</title><a href="${episode(id)}">Watch first episode</a>`;
  const metadata={props:{pageProps:{data:{book_id:id,book_title:'Library fixture '+parseInt(id,16),serial_number:1,chapter_count:1,video_url:`https://v-mps.crazymaplestudios.com/library-${id}.mp4`}}}};
  const video=fs.readFileSync(path.join(__dirname,'fixture.webm.b64'),'utf8').trim();
  return `<!doctype html><title>Episode 1 - Library fixture | ReelShort</title><a href="${movie(id)}">Series</a><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(metadata)}</script><video muted loop playsinline src="data:video/webm;base64,${video}"></video>`;

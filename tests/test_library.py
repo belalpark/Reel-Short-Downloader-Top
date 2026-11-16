@@ -116,6 +116,23 @@ class LibraryTests(unittest.TestCase):
         engine,_,_=self.engine();engine.stop()
         self.assertFalse(self.store.setting('resume_downloads'))
 
+    def test_reconnecting_extension_suspends_browser_refresh_but_keeps_valid_downloads(self):
+        state=snapshot();self.store.ingest(state)
+        item=self.store.episodes(SID)[0];self.store.update_source(item,'ready',verified=time.time())
+        missing=self.store.episodes(SID)[1];self.store.update_source(missing,'needs_refresh')
+        engine,opener,_=self.engine();engine.downloading=True;engine.suspend_browser=True
+        engine.tick();opener.assert_not_called();engine.queue.start.assert_called_once()
+        engine.suspend_browser=False;engine.tick();opener.assert_called_once()
+
+    def test_catalog_timeout_counts_idle_time_not_total_duration_of_active_shelves(self):
+        engine,_,_=self.engine();engine.discovery_id='catalog';engine.discovery_started=time.time()-400
+        engine.bridge.catalog_status.return_value={'id':'catalog','done':False,'updated':time.time()-10}
+        engine._capture_tick();self.assertEqual(engine.discovery_id,'catalog')
+        engine.bridge.command.assert_not_called()
+        engine.bridge.catalog_status.return_value={'id':'catalog','done':False,'updated':time.time()-200}
+        engine._capture_tick();self.assertEqual(engine.discovery_id,'')
+        engine.bridge.command.assert_called_once_with('stop')
+
     def test_completed_file_is_skipped_without_even_rechecking_its_media_url(self):
         state=snapshot();state['total']=1;self.store.ingest(state)
         engine,opener,verifier=self.engine()

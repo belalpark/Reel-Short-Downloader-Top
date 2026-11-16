@@ -29,6 +29,7 @@ class LibraryEngine:
         self.queue_lock = threading.RLock()
         self.discovery_started = 0
         self.saved_recheck = False
+        self.suspend_browser = False
 
     @property
     def active(self):
@@ -109,14 +110,16 @@ class LibraryEngine:
         self.changed()
 
     def _capture_tick(self):
+        if self.suspend_browser:
+            return
         now = time.time()
         if self.discovery_id:
             progress = self.bridge.catalog_status()
             if progress.get('id') == self.discovery_id and progress.get('done'):
                 self.discovery_id = ''
-                self.note = 'حُفظ فهرس المسلسلات. جارٍ جمع روابط الحلقات الجديدة والناقصة.'
+                self.note = 'حُفظ الجزء المتاح من الفهرس؛ تعذر إكمال بعض الصفحات. جارٍ جمع المحفوظ.' if progress.get('error') else 'حُفظ فهرس المسلسلات. جارٍ جمع روابط الحلقات الجديدة والناقصة.'
                 self.changed()
-            elif now - self.discovery_started > 180:
+            elif now - max(self.discovery_started, progress.get('updated', 0) if progress.get('id') == self.discovery_id else 0) > 180:
                 self.bridge.command('stop')
                 self.discovery_id = ''
                 self.note = 'تعذر إكمال الفهرس؛ المحفوظ باقٍ. استخدم إعادة الربط والفحص.'
