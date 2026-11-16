@@ -22,7 +22,7 @@ ORIGIN = re.compile(r"^chrome-extension://([a-p]{32})$")
 
 
 class Bridge:
-    def __init__(self, credentials: Path, port: int = PORT, inbox: Path | None = None):
+    def __init__(self, credentials: Path, port: int = PORT, inbox: Path | None = None, progress=None):
         self.port = port
         self.credentials = credentials
         self.lock = threading.Lock()
@@ -44,6 +44,7 @@ class Bridge:
         self.page_seen = 0.0
         self.command_since = 0.0
         self.command_error = ""
+        self.download_progress = progress
 
     def enable_pairing(self) -> str:
         with self.lock:
@@ -62,12 +63,14 @@ class Bridge:
             page = self.active_page if self.page_seen and time.monotonic() - self.page_seen < 7 else ""
             return {"connected": age is not None and age < STALE_SECONDS and self.browser == "Edge", "browser": self.browser, "age_seconds": round(age, 1) if age is not None else None, "extension_version": EXTENSION_VERSION, "page_url": page, "command_error": self.command_error, "pending_kind": self.pending_command["kind"] if self.pending_command else ""}
 
-    def command(self, kind: str, series_id: str = "") -> str:
+    def command(self, kind: str, series_id: str = "", *, patient=False, completed_episodes=()) -> str:
         if kind not in ("start", "stop"):
             raise ValueError("Unsupported command")
         with self.lock:
             command_id = secrets.token_hex(16)
             self.pending_command = {"id": command_id, "kind": kind, "series_id": series_id}
+            if kind == "start":
+                self.pending_command.update(patient=bool(patient), completedEpisodes=sorted({n for n in completed_episodes if type(n) is int and 1 <= n <= 150}))
             self.command_since = time.monotonic()
             self.command_error = ""
             if kind == "start":
@@ -93,7 +96,7 @@ class Bridge:
                 write_json(self.credentials, {"token": token, "extension_id": match[1]})
                 self.extension_id, self.token = match[1], token
                 self.pair_code = ""
-            elif path in ("/connect", "/heartbeat", "/exchange", "/snapshot", "/ack"):
+            elif path in ("/connect", "/heartbeat", "/exchange", "/snapshot", "/ack", "/progress"):
                 if not self.token or not hmac.compare_digest(auth, "Bearer " + self.token):
                     return 401, {"error": "pairing_required"}
                 if path == "/connect" and not self.extension_id:
@@ -108,6 +111,10 @@ class Bridge:
             reply = {"ok": True, "appVersion": VERSION, "browser": self.browser}
             if path == "/pair":
                 reply["token"] = self.token
+            if path == "/progress":
+                progress = self.download_progress() if self.download_progress else {}
+                if progress.get("runId") == self.active_run_id and progress.get("seriesId") == self.active_series_id:
+                    reply["download"] = progress
             if path == "/exchange":
                 reply["runId"] = self.active_run_id
                 page = str(body.get("pageUrl", ""))[:4096]

@@ -31,7 +31,7 @@
   }
   function sanitizedState(state){
     const rows={};
-    for(const [key,row] of Object.entries(state.rows||{}))rows[key]={episode:row.episode,pageUrl:row.pageUrl||'',mediaUrl:row.mediaUrl||'',playbackStatus:row.playbackStatus||'',status:row.status||'',sourceType:row.sourceType||''};
+    for(const [key,row] of Object.entries(state.rows||{}))rows[key]={episode:row.episode,pageUrl:row.pageUrl||'',mediaUrl:row.mediaUrl||'',playbackStatus:row.playbackStatus||'',status:row.status||'',sourceType:row.sourceType||'',captureId:row.captureId||''};
     return {seriesId:state.seriesId,title:state.title,total:state.total,rows,desktopCommandId:state.desktopCommandId,
       running:!!state.running,paused:!!state.paused,finished:!!state.finished,autoPass:state.autoPass||1,note:state.note||'',updatedAt:state.updatedAt||''};
   }
@@ -57,7 +57,7 @@
       }
       if(command){
         const type=command.kind==='stop'?'DRAMA_STOP':'DRAMA_START';
-        const result=await chrome.tabs.sendMessage(target.id,{type,includePaid:true,waitMs:7000,autoMode:true,maxPasses:3,desktopCommandId:command.id});
+        const result=await chrome.tabs.sendMessage(target.id,{type,includePaid:true,waitMs:7000,autoMode:true,maxPasses:3,patient:!!command.patient,completedEpisodes:command.completedEpisodes||[],desktopCommandId:command.id});
         if(command.kind==='start'&&result?.ok)await chrome.storage.session.set({desktopOwnerTab:target.id});
         if(command.kind==='stop')await chrome.storage.session.remove('desktopOwnerTab');
         await post('/ack',{commandId:command.id,error:result?.ok?'':String(result?.error||'تعذر بدء الفحص')});
@@ -73,14 +73,14 @@
     }finally{busy=false;}
   }
   chrome.runtime.onMessage.addListener((message,sender,reply)=>{
-    if(!['DRAMA_DESKTOP_STATUS','DRAMA_DESKTOP_POLL','DRAMA_DESKTOP_SNAPSHOT'].includes(message?.type))return;
+    if(!['DRAMA_DESKTOP_STATUS','DRAMA_DESKTOP_POLL','DRAMA_DESKTOP_SNAPSHOT','DRAMA_DESKTOP_PROGRESS'].includes(message?.type))return;
     let action;
     if(message.type==='DRAMA_DESKTOP_STATUS'){
       if(sender.id!==chrome.runtime.id||sender.url!==chrome.runtime.getURL('popup.html'))return;
       action=post('/connect');
     }else{
       if(sender.id!==chrome.runtime.id||!sender.tab?.url?.startsWith('https://www.reelshort.com/'))return;
-      action=message.type==='DRAMA_DESKTOP_POLL'?poll(sender,message.pageUrl):publish(message.state);
+      action=message.type==='DRAMA_DESKTOP_POLL'?poll(sender,message.pageUrl):message.type==='DRAMA_DESKTOP_PROGRESS'?post('/progress'):publish(message.state);
     }
     action.then(reply).catch(e=>reply({ok:false,error:String(e?.message||e)}));return true;
   });

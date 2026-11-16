@@ -117,6 +117,11 @@ class DownloadQueue:
                         status = "مكتمل ومفحوص"
                     else:
                         status = "فشل — راجع السجل"
+                        if code == 0 and found and found.is_file():
+                            # A successful HTTP transfer may still contain an error page.
+                            # Keep its last invalid copy and release the output name so
+                            # --no-overwrites cannot block the next repair attempt.
+                            found.replace(found.with_suffix(found.suffix + ".invalid"))
                         self.emit(("log", f"Episode {item.episode}: {error or 'No valid output video was produced.'}"))
                 except OSError as e:
                     status = "فشل — راجع السجل"
@@ -124,8 +129,10 @@ class DownloadQueue:
                 finally:
                     with self.lock:
                         self.process = None
-                results.append({"series_id": item.series_id, "episode": item.episode, "status": status, "file": str(found) if found else ""})
+                result = {"series_id": item.series_id, "episode": item.episode, "status": status, "file": str(found) if found else "", "capture_id": item.capture_id}
+                results.append(result)
                 write_json(self.report, {"results": results, "cancelled": self.cancelled.is_set()})
+                self.emit(("result", result))
                 self.emit(("episode", item.episode, status))
         except Exception as e:
             self.emit(("log", "Queue error: " + redact(str(e))))

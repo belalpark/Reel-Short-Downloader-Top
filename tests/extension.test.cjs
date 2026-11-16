@@ -11,6 +11,51 @@ function load(...files) {
   return ctx;
 }
 const ID='0123456789abcdef01234567';
+test('patient retries stay on the same missing episode without a pass limit and back off',()=>{
+  const {DramaRetryPlan:R}=load('retry_plan.js');
+  const state={patient:true,total:3,autoPass:99,rows:{'1':{downloaded:true},'2':{mediaUrl:'https://cdn.example.org/2.mp4',attempts:1}}};
+  assert.deepEqual(Array.from(R.missing(state)),[2,3]);
+  assert.equal(R.sameEpisode(state,2).episode,2);
+  assert.equal(R.sameEpisode(state,2).delayMs,3000);
+  state.rows['2'].attempts=99;assert.equal(R.sameEpisode(state,2).delayMs,60000);
+  state.rateLimited=true;assert.equal(R.sameEpisode(state,2).delayMs,60000);
+});
+
+function patientAgent(hasMedia){
+  let stored={},listener,token='',sequence=0,reloads=0;
+  const ctx=load('scanner_core.js','hls_observer.js','playback_probe.js','retry_plan.js');
+  ctx.location={href:`https://www.reelshort.com/episodes/episode-1-test-${ID}`,assign(){reloads++;},reload(){reloads++;}};
+  ctx.performance={timeOrigin:Date.now()-1000,getEntriesByType:()=>[]};
+  ctx.sessionStorage={getItem:()=>token,setItem:(_,value)=>{token=value;}};
+  ctx.crypto={randomUUID:()=> 'fixture-'+(++sequence)};
+  ctx.document={title:'Test',body:{appendChild(){}},getElementById:id=>id==='__NEXT_DATA__'?{textContent:JSON.stringify({props:{pageProps:{data:{book_id:ID,serial_number:1,chapter_count:1,video_url:hasMedia?'https://cdn.example.org/1.mp4':''}}}})}:null,querySelectorAll:()=>[],querySelector:()=>null,createElement:()=>({style:{},remove(){}})};
+  ctx.DramaPlaybackProbe={...ctx.DramaPlaybackProbe,waitForPlayback:async()=>({ok:hasMedia,reason:hasMedia?'playback_verified':'playback_not_started',snapshot:{sourceType:'unknown',durationSec:10}})};
+  ctx.downloadProgress={runId:'run',seriesId:ID,enabled:true,completedEpisodes:[]};
+  ctx.chrome={storage:{local:{get:async()=>structuredClone(stored),set:async value=>{Object.assign(stored,structuredClone(value));}}},runtime:{sendMessage:async message=>message.type==='DRAMA_DESKTOP_PROGRESS'?{ok:true,download:ctx.downloadProgress}:{ok:true},onMessage:{addListener:fn=>{listener=fn;}}}};
+  vm.runInContext(fs.readFileSync(path.join(root,'page_agent.js'),'utf8'),ctx);
+  return {ctx,state:()=>stored.dramaScannerV5Current,reloads:()=>reloads,send:message=>new Promise(resolve=>listener(message,{},resolve))};
+}
+async function untilPatient(check){const until=Date.now()+7000;while(Date.now()<until){if(check())return;await new Promise(r=>setTimeout(r,25));}throw Error('Patient fixture timed out');}
+test('capturing a URL does not advance a patient scan before a verified download acknowledgement',async()=>{
+  const agent=patientAgent(true);
+  await agent.send({type:'DRAMA_START',includePaid:true,autoMode:true,patient:true,desktopCommandId:'run'});
+  await untilPatient(()=>agent.state()?.rows['1']?.awaitingDownload);
+  await new Promise(r=>setTimeout(r,1100));
+  assert.equal(agent.state().current,1);assert.equal(agent.state().finished,false);
+  agent.ctx.downloadProgress.completedEpisodes=[1];
+  await untilPatient(()=>agent.state()?.finished);
+  assert.equal(agent.state().rows['1'].downloaded,true);
+  assert.equal(agent.reloads(),0);
+});
+test('STOP during a same-episode retry prevents its later refresh and preserves the episode number',async()=>{
+  const agent=patientAgent(false);
+  await agent.send({type:'DRAMA_START',includePaid:true,autoMode:true,patient:true,desktopCommandId:'run'});
+  await untilPatient(()=>agent.state()?.retryAt);
+  await agent.send({type:'DRAMA_STOP',autoMode:true});
+  await new Promise(r=>setTimeout(r,3300));
+  assert.equal(agent.state().running,false);assert.equal(agent.state().current,1);
+  assert.equal(agent.reloads(),0);
+});
 test('automatic retries visit only missing explicit media and stop after three passes',()=>{
   const {DramaRetryPlan:R}=load('retry_plan.js');
   const state={autoMode:true,total:3,rows:{'1':{mediaUrl:'https://cdn.example.org/1.mp4'},'2':{hlsCandidates:['https://cdn.example.org/2.m3u8']}},autoPass:1,maxPasses:99};

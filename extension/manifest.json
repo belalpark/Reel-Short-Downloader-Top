@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Reel Short Downloader Top \u2014 Scanner v5.4.1",
-  "version": "5.4.1",
+  "name": "Reel Short Downloader Top \u2014 Scanner v5.4.2",
+  "version": "5.4.2",
   "description": "Collects accessible episode sources with verified playback and HLS segment matching.",
   "permissions": [
     "storage",

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import csv
+from dataclasses import replace
 import os
 from pathlib import Path
 import re
@@ -9,6 +10,7 @@ import secrets
 import shutil
 import tempfile
 import threading
+import time
 from urllib.parse import unquote, urlsplit
 
 from . import EXTENSION_VERSION
@@ -69,7 +71,8 @@ class Inbox:
             rows.append({"SeriesID": sid, "SeriesTitle": title, "Episode": ep, "TotalEpisodes": total,
                          "PageURL": page, "MediaURL": str(item.get("mediaUrl", "")),
                          "PlaybackStatus": str(item.get("playbackStatus", "not_checked"))[:100],
-                         "SourceStatus": str(item.get("status", ""))[:100], "SourceType": str(item.get("sourceType", ""))[:100]})
+                         "SourceStatus": str(item.get("status", ""))[:100], "SourceType": str(item.get("sourceType", ""))[:100],
+                         "CaptureID": str(item.get("captureId", ""))[:100]})
         self.folder.mkdir(parents=True, exist_ok=True)
         target = self.folder / (sid + ".csv")
         with self.lock:
@@ -99,6 +102,10 @@ class AutomaticDownloads:
         self.series_id = self.run_id = ""
         self.entries = []
         self.submitted = {}
+        self.capture_submitted = {}
+        self.patient = False
+        self.failures, self.retry_at, self.outcomes = {}, {}, {}
+        self.active_episode = 0
         self.completed = read_json(data / "completed.json", {})
         if not isinstance(self.completed, dict):
             self.completed = {}
@@ -111,12 +118,23 @@ class AutomaticDownloads:
         self.worker = threading.Thread(target=self._watch, daemon=True, name="automatic-inbox")
         self.worker.start()
 
-    def begin(self, series_id: str, run_id: str):
+    def begin(self, series_id: str, run_id: str, patient: bool = False):
         with self.lock:
             if self.enabled or self.queue.running:
                 raise ValueError("التنزيل يعمل بالفعل؛ اضغط إيقاف قبل بدء مسلسل آخر.")
             self.series_id, self.run_id = series_id, run_id
             self.submitted, self.entries = {}, []
+            self.capture_submitted = {}
+            self.failures, self.retry_at, self.outcomes = {}, {}, {}
+            self.active_episode = 0
+            self.patient = patient
+            if patient:
+                try:
+                    saved = load_catalog(self.inbox / (series_id + ".csv"))
+                    if saved[0].series_id == series_id:
+                        self.entries = [replace(e, media_url="", capture_id="") for e in saved]
+                except (OSError, ValueError):
+                    pass
             self.last_stamp = None
             self.enabled = True
 
@@ -128,8 +146,8 @@ class AutomaticDownloads:
     def _key(self, episode):
         return self.series_id + "/" + str(episode)
 
-    def _is_complete(self, item):
-        path = self.completed.get(self._key(item.episode))
+    def _completed_file(self, series_id, episode):
+        path = self.completed.get(series_id + "/" + str(episode))
         if not isinstance(path, str):
             return False
         file = Path(path)
@@ -137,6 +155,28 @@ class AutomaticDownloads:
             return file.is_file() and file.stat().st_size >= 128 and file.resolve().is_relative_to(self.destination.resolve())
         except OSError:
             return False
+
+    def _is_complete(self, item):
+        return self._completed_file(item.series_id, item.episode)
+
+    def completed_episodes(self, series_id=None):
+        sid = series_id or self.series_id
+        return [n for n in range(1, 151) if self._completed_file(sid, n)]
+
+    def progress(self):
+        with self.lock:
+            outcome = self.outcomes.get(self.active_episode, {})
+            return {"runId": self.run_id, "seriesId": self.series_id, "enabled": self.enabled,
+                    "completedEpisodes": self.completed_episodes(), "episode": self.active_episode,
+                    "outcome": dict(outcome), "retryInMs": max(0, round((self.retry_at.get(self.active_episode, 0) - time.monotonic()) * 1000))}
+
+    def pending(self):
+        remaining = [e for e in self.entries if not self._is_complete(e)]
+        candidates = remaining[:1] if self.patient else remaining
+        return [e for e in candidates if e.media_url and (not self.patient or e.capture_id) and
+                (self.submitted.get(e.episode) != e.media_url or
+                 (self.patient and self.capture_submitted.get(e.episode) != e.capture_id))
+                and time.monotonic() >= self.retry_at.get(e.episode, 0)]
 
     def tick(self):
         with self.lock:
@@ -156,20 +196,35 @@ class AutomaticDownloads:
                 self.emit(("catalog", entries, meta, dict(self.completed)))
             if self.queue.running:
                 return
-            pending = [e for e in self.entries if e.media_url and not self._is_complete(e)
-                       and self.submitted.get(e.episode) != e.media_url]
+            pending = self.pending()
             if pending:
                 for item in pending:
                     self.submitted[item.episode] = item.media_url
+                    self.capture_submitted[item.episode] = item.capture_id
+                    self.outcomes.pop(item.episode, None)
+                self.active_episode = pending[0].episode
                 self.queue.start(pending, self.destination)
 
     def _download_event(self, event):
-        if event[0] == "done":
+        if event[0] in ("result", "done"):
             with self.lock:
-                for result in event[1]:
+                changed = False
+                for result in ([event[1]] if event[0] == "result" else event[1]):
+                    if result.get("series_id") != self.series_id:
+                        continue
+                    episode = result["episode"]
                     if result["status"] == "مكتمل ومفحوص" and result.get("file"):
-                        self.completed[result["series_id"] + "/" + str(result["episode"])] = result["file"]
-                write_json(self.data / "completed.json", self.completed)
+                        self.completed[result["series_id"] + "/" + str(episode)] = result["file"]
+                        self.outcomes.pop(episode, None)
+                        self.retry_at.pop(episode, None)
+                        changed = True
+                    elif event[0] == "result" and self.enabled and not result["status"].startswith("متوقف"):
+                        attempts = self.failures.get(episode, 0) + 1
+                        self.failures[episode] = attempts
+                        self.retry_at[episode] = time.monotonic() + min(60, 3 * 2 ** min(5, attempts - 1))
+                        self.outcomes[episode] = {"status": "failed", "captureId": result.get("capture_id", self.capture_submitted.get(episode, "")), "attempts": attempts}
+                if changed:
+                    write_json(self.data / "completed.json", self.completed)
         self.emit(event)
 
     def _watch(self):

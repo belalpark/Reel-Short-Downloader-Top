@@ -14,6 +14,7 @@ from .bridge import Bridge
 from .downloader import redact
 from .edge_install import install_unpacked
 from .paths import bundle_root, data_root, downloads_root, read_json, write_json
+from .presentation import catalog_view
 from .runtime import check_runtime, open_edge
 
 NAVY, BLUE, BG, MUTED = "#152540", "#2563EB", "#F2F5FA", "#60718B"
@@ -69,7 +70,7 @@ class DesktopApp:
         self.step_buttons = []
         specs = [("١", "افتح موقع المسلسل", "سجّل دخولك، ثم افتح المسلسل المطلوب.", self.open_site),
                  ("٢", "أضف الملحق", "إضافة وربط تلقائيان، دون رمز أو كلمة مرور.", self.add_extension),
-                 ("٣", "ابدأ التنزيل", "حفظ تلقائي وإعادة فحص الحلقات الناقصة.", self.start_download)]
+                 ("٣", "ابدأ / واصل التنزيل", "تنزيل الناقص ومحاولة الحلقة حتى تكتمل.", self.start_download)]
         for index, (number, title, description, command) in enumerate(specs):
             cards.columnconfigure(2-index, weight=1, uniform="steps")
             card = tk.Frame(cards, bg="white", padx=12, pady=10, highlightbackground="#DAE3F0", highlightthickness=1)
@@ -115,7 +116,7 @@ class DesktopApp:
             try:
                 credentials = data_root() / "connection.json"
                 provision_extension(bundle_root() / "extension", self.extension_folder, credentials)
-                self.bridge = Bridge(credentials, inbox=data_root() / "Inbox")
+                self.bridge = Bridge(credentials, inbox=data_root() / "Inbox", progress=self.automatic.progress)
                 self.bridge.start()
                 self.automatic.start_worker()
             except OSError as error:
@@ -186,12 +187,14 @@ class DesktopApp:
             self.status.set("افتح صفحة المسلسل المطلوب في Edge ثم اضغط بدء التنزيل.")
             return
         try:
-            run_id = self.bridge.command("start", sid)
-            self.automatic.begin(sid, run_id)
-            self.entries, self.scan_meta, self.row_status = [], {}, {}
+            completed = self.automatic.completed_episodes(sid)
+            run_id = self.bridge.command("start", sid, patient=True, completed_episodes=completed)
+            self.automatic.begin(sid, run_id, patient=True)
+            self.entries, self.scan_meta, self.row_status = list(self.automatic.entries), {}, {}
             self.table.delete(*self.table.get_children())
             self.progress["value"] = 0
-            self.status.set("بدأ الفحص؛ سيُحمَّل كل رابط يظهر تلقائيًا، ثم يُعاد فحص الناقص.")
+            self._update_table()
+            self.status.set(f"جارٍ استئناف الناقص فقط؛ {len(completed)} حلقة محفوظة. لن ينتقل إلى التالية قبل اكتمال تنزيل الحالية.")
         except ValueError as error:
             self.status.set(str(error))
 
@@ -229,31 +232,14 @@ class DesktopApp:
         text.configure(state="disabled")
 
     def _update_table(self):
-        done = available = 0
-        reasons = {
-            "hls_not_observed": "لم يُلتقط بث هذه الحلقة بعد",
-            "hls_ambiguous": "ظهرت مصادر متعددة؛ لم تثبت مطابقة الحلقة",
-            "hls_duration_mismatch": "مدة البث لا تطابق الحلقة",
-            "hls_previous_episode": "البث المرصود يخص حلقة سابقة",
-            "hls_stale_playback": "المشغّل لم ينتقل إلى فيديو الحلقة بعد",
-            "hls_segments_not_observed": "بانتظار تحميل مقاطع فيديو الحلقة",
-            "hls_access_denied": "تعذرت قراءة مصدر البث",
-            "hls_drm_protected": "بث محمي غير مدعوم",
-            "playback_not_started": "المشغّل لم يبدأ تشغيل الحلقة",
-            "video_element_missing": "مشغّل الفيديو لم يظهر",
-            "access_unavailable": "الموقع لم يتيح فتح الحلقة في هذه الجلسة",
-        }
-        for item in self.entries:
-            completed = self.automatic._is_complete(item)
-            done += completed
-            available += bool(item.media_url)
-            value = "مكتمل ومفحوص" if completed else self.row_status.get(item.episode, "بانتظار التنزيل" if item.media_url else reasons.get(item.source_status or item.playback, "بانتظار التقاط الفيديو"))
-            fields = (value, "متوفر" if item.media_url else "لم يظهر بعد", item.episode)
-            if self.table.exists(str(item.episode)):
-                self.table.item(str(item.episode), values=fields)
+        rows, done, available, remaining = catalog_view(self.entries, self.automatic._is_complete, self.row_status)
+        for fields in rows:
+            episode = str(fields[2])
+            if self.table.exists(episode):
+                self.table.item(episode, values=fields)
             else:
-                self.table.insert("", "end", iid=str(item.episode), values=fields)
-        self.counts.set(f"تم التنزيل: {done}   |   المتوفر: {available}   |   بانتظار رابط: {len(self.entries)-available}")
+                self.table.insert("", "end", iid=episode, values=fields)
+        self.counts.set(f"تم التنزيل: {done}   |   جاهز للتنزيل: {available}   |   متبقٍ: {remaining}")
         return done
 
     def _poll(self):
@@ -316,7 +302,7 @@ class DesktopApp:
             self.status.set(self.scan_meta.get("note", "توقف الفحص؛ افتح الحلقة المطلوبة ثم اضغط بدء التنزيل."))
         elif active and self.scan_meta.get("finished") and not self.automatic.queue.running:
             with self.automatic.lock:
-                pending = [e for e in self.entries if e.media_url and not self.automatic._is_complete(e) and self.automatic.submitted.get(e.episode) != e.media_url]
+                pending = self.automatic.pending()
                 if not pending:
                     self.automatic.enabled = False
                     done = self._update_table()
