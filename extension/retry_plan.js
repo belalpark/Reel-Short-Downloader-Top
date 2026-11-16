@@ -3,7 +3,10 @@
   'use strict';
   function missing(state) {
     const result=[];
-    for(let n=1;n<=state.total;n++)if(state.patient?!state.rows?.[String(n)]?.downloaded:!state.rows?.[String(n)]?.mediaUrl)result.push(n);
+    for(let n=1;n<=state.total;n++){
+      if(state.collectOnly&&state.collectTargets?.length&&!state.collectTargets.includes(n))continue;
+      if(state.collectOnly?!state.rows?.[String(n)]?.collected:state.patient?!state.rows?.[String(n)]?.downloaded:!state.rows?.[String(n)]?.mediaUrl)result.push(n);
+    }
     return result;
   }
   function plan(state) {

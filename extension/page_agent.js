@@ -25,7 +25,7 @@
   async function persist(state,force=false) {
     if(cancelled && state.running) return false;
     state.updatedAt = new Date().toISOString();
-    await chrome.storage.local.set({[STORE]: state, ['dramaScannerSeries:'+state.seriesId]: state});
+    await chrome.storage.local.set(state.collectOnly?{[STORE]:state}:{[STORE]: state, ['dramaScannerSeries:'+state.seriesId]: state});
     if(state.autoMode && (force || Date.now()-lastDesktopPublish>900 || !state.running)){
       lastDesktopPublish=Date.now();
       try{await chrome.runtime.sendMessage({type:'DRAMA_DESKTOP_SNAPSHOT',state});}catch(_){}
@@ -59,6 +59,8 @@
     return String(s || '').replace(/^(?:الحلقة\s*\d+|Episode\s*\d+)\s*[-–:]\s*/i,'').replace(/\s*\|\s*ReelShort.*$/i,'').trim();
   }
   function discover(state) {
+    const landing=[...document.querySelectorAll('a[href]')].find(a=>/\/(?:movie|full-episodes)\//.test(a.href)&&C.seriesIdFromUrl(a.href)===state.seriesId);
+    if(landing)state.seriesPageUrl=landing.href.split('?')[0];
     const numbers = C.allButtons(document);
     if (numbers.length && numbers.length > state.knownButtons) state.knownButtons = numbers.length;
     for (const a of document.querySelectorAll('a[href*="/episodes/episode-"]')) {
@@ -271,6 +273,11 @@
           await persist(state); break;
         }
         const ep=state.current;
+        if(state.collectOnly){
+          const next=globalThis.DramaRetryPlan.missing(state).find(n=>n>=ep);
+          if(!next){state.current=state.total+1;await persist(state);break;}
+          if(next!==ep){state.current=next;await persist(state);continue;}
+        }
         if(state.patient&&state.rows[String(ep)]?.downloaded){state.current++;await persist(state);continue;}
         if(state.patient&&state.rows[String(ep)]?.awaitingDownload){
           const result=await waitForDownload(state,ep);
@@ -280,7 +287,7 @@
         }
         if (state.recheckOnly) {
           const existing=state.rows[String(ep)]||{};
-          if (existing.mediaUrl || (!state.autoMode && existing.playbackStatus==='playback_verified' && (existing.hlsCandidates||[]).length)) {
+          if ((state.collectOnly?existing.collected:existing.mediaUrl) || (!state.autoMode && existing.playbackStatus==='playback_verified' && (existing.hlsCandidates||[]).length)) {
             state.current++; await persist(state); continue;
           }
         }
@@ -302,7 +309,7 @@
             recordError(state,ep,result);
             if(state.patient){await retryEpisode(state,ep,'تعذر فتح الحلقة');return;}
             if (state.autoMode && result==='manual_open_required')state.navigationBlocked=(state.navigationBlocked||0)+1;
-            if ((!state.autoMode && result === 'manual_open_required') || result === 'wrong_page' || state.navigationBlocked>=2) {
+            if ((!state.autoMode && result === 'manual_open_required') || result === 'wrong_page' || (!state.collectOnly&&state.navigationBlocked>=2)) {
               pause(state,state.autoMode?`تعذّر فتح الحلقة ${ep}. أكمل الوصول إليها في الموقع ثم اضغط بدء التنزيل في التطبيق.`:`تعذّر الانتقال إلى الحلقة ${ep} تلقائيًا. افتح الحلقة ${ep} يدويًا في هذا التبويب ثم اختر «استئناف»، أو اختر «تجاوز».`);
               await persist(state);
               break;
@@ -326,6 +333,11 @@
         const latest=await load();
         if (!state.running) { await persist(state); break; }
         if (!latest?.running) break; // Preserve a STOP command sent during the playback wait.
+        if(state.collectOnly){
+          const row=state.rows[String(ep)];row.captureId=crypto.randomUUID();
+          row.collected=!!row.mediaUrl&&row.playbackStatus==='playback_verified';
+          await persist(state,true);
+        }
         if(state.patient){
           const row=state.rows[String(ep)];
           if(!row?.mediaUrl){await retryEpisode(state,ep,'لم يتوفر الفيديو بعد');return;}
@@ -408,13 +420,19 @@
       state.retryDelayMs=Number(options.retryDelayMs)||10000;
       state.desktopCommandId=String(options.desktopCommandId||'');
       state.patient=!!options.patient;
+      state.collectOnly=!!options.collectOnly;
+      state.collectTargets=(options.targetEpisodes||[]).filter(n=>Number.isInteger(n)&&n>0&&n<=total);
       if(previous?.seriesId===id){
-        state.rows=Object.fromEntries(Object.entries(previous.rows||{}).map(([key,row])=>[key,{...row,mediaUrl:'',captureId:'',awaitingDownload:false,downloaded:false,attempts:0,verifiedHlsUrl:'',hlsCandidates:[],status:'page_only',playbackStatus:'not_checked'}]));
+        state.rows=Object.fromEntries(Object.entries(previous.rows||{}).map(([key,row])=>[key,{...row,mediaUrl:'',captureId:'',awaitingDownload:false,downloaded:false,collected:false,attempts:0,verifiedHlsUrl:'',hlsCandidates:[],status:'page_only',playbackStatus:'not_checked'}]));
         // A new run refreshes signed URLs. Missing-only retries within that run
         // still retain all media already found; the app skips completed files.
       }
       if(state.patient){
         for(const ep of options.completedEpisodes||[])if(Number.isInteger(ep)&&ep>0&&ep<=total)state.rows[String(ep)]={...(state.rows[String(ep)]||{}),episode:ep,downloaded:true,status:'downloaded',mediaUrl:''};
+        state.current=globalThis.DramaRetryPlan.missing(state)[0]||total+1;
+      }
+      if(state.collectOnly){
+        for(const ep of options.collectedEpisodes||[])if(Number.isInteger(ep)&&ep>0&&ep<=total)state.rows[String(ep)]={...(state.rows[String(ep)]||{}),episode:ep,collected:true,mediaUrl:''};
         state.current=globalThis.DramaRetryPlan.missing(state)[0]||total+1;
       }
     }

@@ -19,6 +19,7 @@ def main():
     mode.add_argument("--smoke-test", action="store_true")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--screenshot", type=Path)
+    parser.add_argument('--library-screenshot', type=Path)
     args = parser.parse_args()
     if args.check_runtime or args.verify_install:
         checks = check_runtime()
@@ -66,6 +67,19 @@ def main():
                     write_json(args.report, {"gui_created": True, "steps": [1, 2, 3], "manual_csv_required": False,
                         "pairing_code_required": False, "edge_automation_imported": sys.platform == "win32", "runtime_checks_completed": not app.checking,
                         "width": root.winfo_width(), "height": root.winfo_height()})
+                if args.library_screenshot:
+                    from PIL import ImageGrab
+                    for n in range(1,61):
+                        sid=f'{n:024x}'
+                        page=f'https://www.reelshort.com/ar/episodes/episode-1-fixture-{sid}'
+                        app.library_store.add_series([{'id':sid,'title':f'مسلسل اختبار {n:02d}','pageUrl':page}])
+                        app.library_store.ingest({'seriesId':sid,'title':f'مسلسل اختبار {n:02d}','total':1,'rows':{'1':{'pageUrl':page}}})
+                    app.open_library()
+                    root.update()
+                    view=app.library_window.window
+                    assert len(app.library_window.table.get_children())==60
+                    args.library_screenshot.parent.mkdir(parents=True,exist_ok=True)
+                    ImageGrab.grab(bbox=(view.winfo_rootx(),view.winfo_rooty(),view.winfo_rootx()+view.winfo_width(),view.winfo_rooty()+view.winfo_height())).save(args.library_screenshot)
             finally:
                 root.destroy()
         root.after(1500, capture)

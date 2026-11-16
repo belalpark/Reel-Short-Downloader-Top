@@ -239,3 +239,28 @@ test('a verification fetch cannot turn an old manifest into fresh player evidenc
   const result=await ctx.DramaHLSSource.resolve({video:()=>video,episode:9,rows:{},since,previous:{src:'blob:old',duration:8,position:4},timeoutMs:1000});
   assert.equal(result.ok,false);assert.equal(result.reason,'hls_stale_playback');assert.equal(calls,1);
 });
+
+test('library catalog keeps 60 unique identities from episode and movie cards',()=>{
+  const {DramaLibraryCatalog:C}=load('library_catalog.js');
+  const links=[];
+  for(let n=1;n<=60;n++){
+    const id=n.toString(16).padStart(24,'0');
+    links.push({href:`/ar/episodes/episode-2-fixture-${id}-token?playTime=1`,title:`Series ${n}`});
+    links.push({href:`/ar/episodes/episode-1-fixture-${id}-token?playTime=1`,title:`Series ${n}`});
+    links.push({href:`/ar/movie/fixture-${id}`,title:`Series ${n}`});
+  }
+  links.push({href:'/ar/shelf/latest-short-movies-dramas-51004317'});
+  links.push({href:'https://www.reelshort.com.evil.example/ar/movie/fake-'+ID});
+  links.push({href:'/ar/movie/%broken-'+ID});
+  const result=C.extract(links,'https://www.reelshort.com/ar');
+  assert.equal(result.series.length,60);assert.equal(result.shelves.length,1);
+  assert.ok(result.series.every(s=>s.pageUrl.includes('/episode-1-')&&!s.pageUrl.includes('?')));
+});
+
+test('library collection skips captured episodes but targets only the expired episode for renewal',()=>{
+  const {DramaRetryPlan:R}=load('retry_plan.js');
+  const state={collectOnly:true,total:4,rows:{'1':{collected:true},'2':{collected:true},'3':{},'4':{}}};
+  assert.deepEqual(Array.from(R.missing(state)),[3,4]);
+  state.collectTargets=[2];state.rows['2'].collected=false;
+  assert.deepEqual(Array.from(R.missing(state)),[2]);
+});

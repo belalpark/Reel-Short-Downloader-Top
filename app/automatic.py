@@ -87,6 +87,7 @@ class Inbox:
                 write_json(target.with_suffix(".json"), {"run_id": run_id, "series_id": sid,
                     "revision": secrets.token_hex(16),
                     "running": bool(state.get("running")), "paused": bool(state.get("paused")), "finished": bool(state.get("finished")),
+                    "rate_limited": bool(state.get('rateLimited')),
                     "pass": int(state.get("autoPass", 1)), "note": str(state.get("note", ""))[:500],
                     "updated_at": str(state.get("updatedAt", ""))})
             finally:
@@ -195,6 +196,11 @@ class AutomaticDownloads:
             return {"runId": self.run_id, "seriesId": self.series_id, "enabled": self.enabled,
                     "completedEpisodes": self.completed_episodes(), "episode": self.active_episode,
                     "outcome": dict(outcome), "retryInMs": max(0, round((self.retry_at.get(self.active_episode, 0) - time.monotonic()) * 1000))}
+
+    def record_library_completion(self, series_id, episode, file):
+        with self.lock:
+            self.completed[series_id + '/' + str(episode)] = str(file)
+            write_json(self.data / 'completed.json', self.completed)
 
     def pending(self):
         remaining = [e for e in self.entries if not self._is_complete(e)]

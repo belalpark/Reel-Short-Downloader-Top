@@ -9,8 +9,10 @@ from pathlib import Path
 import re
 import secrets
 import socket
+import sqlite3
 import threading
 import time
+from urllib.parse import urlsplit
 
 from . import EXTENSION_VERSION, VERSION
 from .paths import read_json, write_json
@@ -22,7 +24,7 @@ ORIGIN = re.compile(r"^chrome-extension://([a-p]{32})$")
 
 
 class Bridge:
-    def __init__(self, credentials: Path, port: int = PORT, inbox: Path | None = None, progress=None):
+    def __init__(self, credentials: Path, port: int = PORT, inbox: Path | None = None, progress=None, library=None):
         self.port = port
         self.credentials = credentials
         self.lock = threading.Lock()
@@ -45,6 +47,18 @@ class Bridge:
         self.command_since = 0.0
         self.command_error = ""
         self.download_progress = progress
+        self.library = library
+        self.snapshot_handler = None
+        self.catalog_job_id = ''
+        self.catalog_progress = {}
+
+    def catalog_status(self):
+        with self.lock:
+            return dict(self.catalog_progress)
+
+    def require_fresh_heartbeat(self):
+        with self.lock:
+            self.last_seen = 0
 
     def enable_pairing(self) -> str:
         with self.lock:
@@ -55,7 +69,7 @@ class Bridge:
 
     def status(self) -> dict:
         with self.lock:
-            if self.pending_command and time.monotonic() - self.command_since > 15:
+            if self.pending_command and time.monotonic() - self.command_since > (60 if self.pending_command['kind'] in ('open', 'catalog') or self.pending_command.get('collectOnly') else 15):
                 if self.pending_command["kind"] == "start":
                     self.command_error = "تعذر بدء الفحص. افتح المسلسل في Edge ثم اضغط بدء التنزيل مجددًا."
                 self.pending_command = None
@@ -63,14 +77,28 @@ class Bridge:
             page = self.active_page if self.page_seen and time.monotonic() - self.page_seen < 7 else ""
             return {"connected": age is not None and age < STALE_SECONDS and self.browser == "Edge", "browser": self.browser, "age_seconds": round(age, 1) if age is not None else None, "extension_version": EXTENSION_VERSION, "page_url": page, "command_error": self.command_error, "pending_kind": self.pending_command["kind"] if self.pending_command else ""}
 
-    def command(self, kind: str, series_id: str = "", *, patient=False, completed_episodes=()) -> str:
-        if kind not in ("start", "stop"):
+    def command(self, kind: str, series_id: str = "", *, patient=False, completed_episodes=(), page_url='', collect_only=False, collected_episodes=(), target_episodes=()) -> str:
+        if kind not in ("start", "stop", "open", "catalog"):
             raise ValueError("Unsupported command")
+        if kind in ('open', 'catalog'):
+            parsed = urlsplit(page_url)
+            if parsed.scheme != 'https' or parsed.netloc != 'www.reelshort.com' or len(page_url) > 4096:
+                raise ValueError('Invalid website page')
         with self.lock:
             command_id = secrets.token_hex(16)
             self.pending_command = {"id": command_id, "kind": kind, "series_id": series_id}
             if kind == "start":
                 self.pending_command.update(patient=bool(patient), completedEpisodes=sorted({n for n in completed_episodes if type(n) is int and 1 <= n <= 150}))
+                self.pending_command.update(collectOnly=bool(collect_only), collectedEpisodes=sorted({n for n in collected_episodes if type(n) is int and 1 <= n <= 150}), targetEpisodes=sorted({n for n in target_episodes if type(n) is int and 1 <= n <= 150}))
+            if kind in ('open', 'catalog'):
+                self.pending_command['pageUrl'] = page_url
+                self.active_run_id = self.active_series_id = self.active_page = ''
+                self.page_seen = 0
+            if kind == 'catalog':
+                self.catalog_job_id = command_id
+                self.catalog_progress = {'id': command_id, 'done': False, 'count': 0}
+            if kind == 'stop':
+                self.catalog_job_id = ''
             self.command_since = time.monotonic()
             self.command_error = ""
             if kind == "start":
@@ -96,7 +124,7 @@ class Bridge:
                 write_json(self.credentials, {"token": token, "extension_id": match[1]})
                 self.extension_id, self.token = match[1], token
                 self.pair_code = ""
-            elif path in ("/connect", "/heartbeat", "/exchange", "/snapshot", "/ack", "/progress"):
+            elif path in ("/connect", "/heartbeat", "/exchange", "/snapshot", "/ack", "/progress", "/library/catalog"):
                 if not self.token or not hmac.compare_digest(auth, "Bearer " + self.token):
                     return 401, {"error": "pairing_required"}
                 if path == "/connect" and not self.extension_id:
@@ -121,17 +149,29 @@ class Bridge:
                 if page.startswith("https://www.reelshort.com/"):
                     self.active_page = page
                     self.page_seen = time.monotonic()
-                if self.pending_command and (not self.pending_command["series_id"] or series_from_page(page) == self.pending_command["series_id"]):
+                if self.pending_command and (self.pending_command['kind'] in ('open', 'catalog') or not self.pending_command["series_id"] or series_from_page(page) == self.pending_command["series_id"]):
                     reply["command"] = dict(self.pending_command)
             if path == "/ack" and self.pending_command and body.get("commandId") == self.pending_command["id"]:
+                if self.pending_command['kind'] == 'open':
+                    self.active_page, self.page_seen = '', 0
                 self.command_error = str(body.get("error", ""))[:250]
                 self.pending_command = None
+            if path == '/library/catalog':
+                if not self.library or not self.catalog_job_id or body.get('jobId') != self.catalog_job_id:
+                    return 409, {'error': 'unexpected_catalog_job'}
+                try:
+                    self.library.add_series(body.get('items', []))
+                except (ValueError, TypeError):
+                    return 422, {'error': 'invalid_library_catalog'}
+                self.catalog_progress = {'id': self.catalog_job_id, 'done': bool(body.get('done')), 'count': len(self.library.series()), 'error': str(body.get('error', ''))[:100]}
             if path == "/snapshot":
                 state = body.get("state")
                 if not isinstance(state, dict) or state.get("seriesId") != self.active_series_id or state.get("desktopCommandId") != self.active_run_id:
                     return 409, {"error": "unexpected_scan_session"}
                 try:
                     self.inbox.save(state, self.active_run_id)
+                    if self.snapshot_handler:
+                        self.snapshot_handler(state)
                 except ValueError:
                     return 422, {"error": "invalid_episode_index"}
             return 200, reply
@@ -214,7 +254,7 @@ class Bridge:
                     return
                 try:
                     code, reply = bridge.receive(self.path, self.headers.get("Origin", ""), self.headers.get("Authorization", ""), data, self.headers.get("User-Agent", ""))
-                except OSError:
+                except (OSError, sqlite3.Error):
                     code, reply = 500, {"error": "cannot_save_pairing"}
                 self._reply(code, reply)
 

@@ -5,6 +5,7 @@ from pathlib import Path
 import queue
 import threading
 import time
+import tempfile
 import tkinter as tk
 from tkinter import filedialog, ttk
 
@@ -16,6 +17,9 @@ from .edge_install import install_unpacked
 from .paths import bundle_root, data_root, downloads_root, read_json, write_json
 from .presentation import catalog_view
 from .runtime import check_runtime, open_edge
+from .library_store import LibraryStore
+from .library_engine import LibraryEngine
+from .library_ui import LibraryWindow
 
 NAVY, BLUE, BG, MUTED = "#152540", "#2563EB", "#F2F5FA", "#60718B"
 
@@ -31,6 +35,10 @@ class DesktopApp:
         self.entries, self.scan_meta = [], {}
         self.row_status = {}
         self.bridge = None
+        self.library_engine = self.library_window = None
+        self.library_restore_checked = self.resume_single = False
+        self.library_temporary = tempfile.TemporaryDirectory() if smoke else None
+        self.library_store = LibraryStore((Path(self.library_temporary.name) if smoke else data_root()) / 'library.sqlite3')
         self.extension_folder = data_root() / "Extension"
         settings = read_json(data_root() / "settings.json", {})
         saved_folder = settings.get("download_folder") if isinstance(settings, dict) else None
@@ -92,13 +100,15 @@ class DesktopApp:
         self.fallback = ttk.Frame(body)
         ttk.Button(self.fallback, text="فتح صفحة الإضافات", command=self.open_extensions).pack(side="right")
         ttk.Button(self.fallback, text="نسخ مسار الملحق", command=self.copy_extension_path).pack(side="right", padx=6)
-        self.counts = tk.StringVar(value="تم التنزيل: ٠   |   المتوفر: ٠   |   بانتظار رابط: ٠")
+        self.counts = tk.StringVar(value="تم التنزيل: ٠   |   جاهز للتنزيل: ٠   |   متبقٍ: ٠")
         ttk.Label(body, textvariable=self.counts, anchor="e", font=("Segoe UI", 12, "bold")).pack(fill="x", pady=(2, 7))
         bottom = ttk.Frame(body)
         bottom.pack(side="bottom", fill="x", pady=(9, 0))
         ttk.Button(bottom, text="فتح مجلد الحفظ", command=lambda: self.open_folder(self.destination)).pack(side="left")
         ttk.Button(bottom, text="تغيير المجلد", command=self.choose_destination).pack(side="left", padx=6)
         ttk.Button(bottom, text="التفاصيل", command=self.show_details).pack(side="left")
+        ttk.Button(bottom, text='مكتبة المسلسلات', command=self.open_library).pack(side='right')
+        ttk.Button(bottom, text='إعادة الربط والفحص', command=self.reconnect).pack(side='right', padx=6)
         self.path_label = ttk.Label(body, text=str(self.destination), anchor="e", foreground=MUTED, wraplength=970)
         self.path_label.pack(side="bottom", fill="x", pady=(8, 0))
         self.progress = ttk.Progressbar(body, maximum=100)
@@ -117,9 +127,12 @@ class DesktopApp:
             try:
                 credentials = data_root() / "connection.json"
                 provision_extension(bundle_root() / "extension", self.extension_folder, credentials)
-                self.bridge = Bridge(credentials, inbox=data_root() / "Inbox", progress=self.automatic.progress)
+                self.bridge = Bridge(credentials, inbox=data_root() / "Inbox", progress=self.automatic.progress, library=self.library_store)
                 self.bridge.start()
                 self.automatic.start_worker()
+                self.library_engine = LibraryEngine(self.library_store, self.bridge, self.automatic, bundle_root(), data_root(), self.destination, self.events.put)
+                self.bridge.snapshot_handler = self.library_engine.on_snapshot
+                self.library_engine.start_worker()
             except OSError as error:
                 self.events.put(("error", "تعذر فتح البرنامج؛ أغلق أي نسخة أخرى ثم حاول مجددًا.", str(error)))
         self.recheck()
@@ -127,6 +140,56 @@ class DesktopApp:
 
     def _ready(self):
         return not self.checking and bool(self.checks) and all(c["ok"] for c in self.checks)
+
+    def open_library(self):
+        if self.library_window and self.library_window.window.winfo_exists():
+            self.library_window.window.lift()
+        else:
+            self.library_window = LibraryWindow(self)
+
+    def collect_library(self):
+        if not self._ready() or not self.library_engine:
+            self.status.set('لم يكتمل التجهيز؛ استخدم إعادة الربط والفحص.')
+            return
+        if self.automatic.enabled or self.automatic.queue.running or self.preparing:
+            self.status.set('أوقف تنزيل المسلسل الحالي أولًا، ثم اجمع المكتبة.')
+            return
+        self.library_engine.start_collection()
+        self.open_library()
+
+    def download_library(self):
+        if not self._ready() or not self.library_engine:
+            self.status.set('لم يكتمل التجهيز؛ استخدم إعادة الربط والفحص.')
+            return
+        if self.automatic.enabled or self.automatic.queue.running or self.preparing:
+            self.status.set('أوقف تنزيل المسلسل الحالي أولًا، ثم نزّل المكتبة.')
+            return
+        self.library_engine.start_downloads()
+        self.open_library()
+
+    def stop_library(self):
+        if self.library_engine:
+            self.library_engine.stop()
+
+    def reconnect(self):
+        if self.installing or self.smoke or not self.bridge or not self.bridge.server:
+            return
+        self.resume_single = self.automatic.enabled
+        if self.library_engine:
+            self.library_engine.resume_collection = self.library_engine.collecting
+            self.library_engine.stop_collection()
+        self.stop_download(single_only=True)
+        self.recheck()
+        self.installing = self.return_after_install = True
+        self.status.set('جارٍ فحص المتطلبات وتحديث ربط الملحق؛ تقدم التنزيل محفوظ.')
+        def repair():
+            try:
+                provision_extension(bundle_root() / 'extension', self.extension_folder, data_root() / 'connection.json')
+                install_unpacked(self.extension_folder, lambda message: self.events.put(('status',message)))
+                self.events.put(('extension_done',))
+            except Exception as error:
+                self.events.put(('extension_error',str(error)))
+        threading.Thread(target=repair,daemon=True,name='reconnect-extension').start()
 
     def recheck(self):
         if self.checking:
@@ -177,6 +240,9 @@ class DesktopApp:
         self.status.set("المسار منسوخ: فعّل Developer mode ثم Load unpacked والصق المسار مرة واحدة.")
 
     def start_download(self):
+        if self.library_engine and self.library_engine.active:
+            self.status.set('المكتبة تعمل؛ أوقفها أولًا لتنزيل مسلسل منفرد.')
+            return
         if not self._ready() or not self.bridge or self.preparing or self.automatic.enabled or self.automatic.queue.running:
             return
         state = self.bridge.status()
@@ -214,21 +280,25 @@ class DesktopApp:
         except ValueError as error:
             self.status.set(str(error))
 
-    def stop_download(self):
+    def stop_download(self, single_only=False):
         self.preparing = False
         self.prepare_generation += 1
         if self.bridge:
             self.bridge.command("stop", self.automatic.series_id)
         threading.Thread(target=self.automatic.stop, daemon=True).start()
+        if self.library_engine and not single_only:
+            self.library_engine.stop()
         self.status.set("تم طلب الإيقاف؛ يُحفظ تقدم التنزيل للاستئناف.")
 
     def choose_destination(self):
-        if self.preparing or self.automatic.enabled or self.automatic.queue.running:
+        if self.preparing or self.automatic.enabled or self.automatic.queue.running or (self.library_engine and self.library_engine.active):
             self.status.set("أوقف التنزيل قبل تغيير المجلد.")
             return
         selected = filedialog.askdirectory(parent=self.root, title="مجلد حفظ المقاطع")
         if selected:
             self.destination = self.automatic.destination = Path(selected)
+            if self.library_engine:
+                self.library_engine.destination = self.destination
             write_json(data_root() / "settings.json", {"download_folder": selected})
             self.path_label.configure(text=selected)
             self.recheck()
@@ -269,7 +339,13 @@ class DesktopApp:
             except queue.Empty:
                 break
             kind, *args = event
-            if kind == "resume_ready":
+            if kind == 'library_changed':
+                if self.library_window and self.library_window.window.winfo_exists():
+                    self.library_window.refresh()
+            elif kind == 'library_progress':
+                self.progress['value'] = args[1]
+                self.status.set(f'المكتبة — تنزيل الحلقة {args[0]} — {args[1]:.1f}%')
+            elif kind == "resume_ready":
                 if self.preparing and args[2] == self.prepare_generation:
                     self.preparing = False
                     self._begin_download(args[0], args[1])
@@ -283,6 +359,9 @@ class DesktopApp:
                 failures = [c for c in self.checks if not c["ok"]]
                 self.logs.extend(c["name"] + ": " + c["detail"] for c in self.checks)
                 self.status.set("ابدأ بالزر ١ لفتح الموقع." if not failures else "لم يكتمل التجهيز: " + ", ".join(c["name"] for c in failures))
+                if not failures and self.library_engine and not self.library_restore_checked:
+                    self.library_restore_checked = True
+                    self.library_engine.restore_downloads()
             elif kind == "catalog":
                 self.entries, self.scan_meta = args[0], args[1]
                 self._update_table()
@@ -297,6 +376,8 @@ class DesktopApp:
                 self._update_table()
             elif kind == "extension_done":
                 self.installing = False
+                if self.bridge:
+                    self.bridge.require_fresh_heartbeat()
                 self.status.set("جارٍ التحقق من الملحق؛ سيظهر جاهز تلقائيًا.")
             elif kind == "extension_error":
                 self.installing = False
@@ -304,6 +385,12 @@ class DesktopApp:
                 self.logs.append(redact(args[0]))
                 self.status.set(args[0][:190])
                 self.fallback.pack(fill="x", before=self.table.master, pady=(3, 7))
+            elif kind == 'result':
+                result = args[0]
+                if result['status']=='مكتمل ومفحوص' and result.get('file'):
+                    self.library_store.complete(result['series_id'], result['episode'], result['file'])
+                    if self.library_window and self.library_window.window.winfo_exists():
+                        self.library_window.refresh()
             elif kind == "status":
                 self.status.set(args[0])
             elif kind in ("log", "error"):
@@ -319,11 +406,17 @@ class DesktopApp:
                 self.return_after_install = False
                 self.root.lift()
                 self.root.focus_force()
+                if self.library_engine and self.library_engine.resume_collection:
+                    self.library_engine.resume_collection = False
+                    self.library_engine.start_collection()
+        if connected and self.resume_single and not self.installing and series_from_page(state.get('page_url','')):
+            self.resume_single = False
+            self.start_download()
         if state.get("command_error"):
             self.status.set(state["command_error"])
             if self.automatic.enabled:
                 threading.Thread(target=self.automatic.stop, daemon=True).start()
-        active = self.preparing or self.automatic.enabled or self.automatic.queue.running
+        active = self.preparing or self.automatic.enabled or self.automatic.queue.running or bool(self.library_engine and self.library_engine.active)
         if self.automatic.enabled and self.scan_meta.get("paused") and not self.automatic.queue.running:
             self.automatic.enabled = False
             self.status.set(self.scan_meta.get("note", "توقف الفحص؛ افتح الحلقة المطلوبة ثم اضغط بدء التنزيل."))
@@ -342,10 +435,13 @@ class DesktopApp:
     def close(self):
         if self.closed:
             return
-        self.stop_download()
+        self.stop_download(single_only=True)
+        if self.library_engine:
+            self.library_engine.pause_for_exit()
         deadline = time.monotonic() + 3
         def finish():
-            if self.automatic.queue.running and time.monotonic() < deadline:
+            waiting = self.automatic.queue.running or bool(self.library_engine and self.library_engine.queue.running) or bool(self.bridge and self.bridge.status().get('pending_kind')=='stop')
+            if waiting and time.monotonic() < deadline:
                 self.root.after(150, finish)
             else:
                 self.closed = True
@@ -354,5 +450,9 @@ class DesktopApp:
 
     def cleanup(self):
         self.automatic.close()
+        if self.library_engine:
+            self.library_engine.close()
         if self.bridge:
             self.bridge.close()
+        if self.library_temporary:
+            self.library_temporary.cleanup()
