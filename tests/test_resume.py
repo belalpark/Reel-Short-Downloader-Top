@@ -145,9 +145,9 @@ class ResumeTests(unittest.TestCase):
         foreign = self.root / 'Videos' / ('Other_' + 'f' * 24)
         foreign.mkdir()
         (foreign / 'Episode_045.mp4').write_bytes(b'video' * 100)
-        with patch('app.automatic.validate_video', side_effect=lambda _root, file: file == good) as probe:
+        with patch('app.automatic.validate_video', side_effect=lambda _root, file: file.resolve() == good.resolve()) as probe:
             self.assertEqual(self.auto.recover_completed(SID), [46])
-            self.assertEqual({call.args[1] for call in probe.call_args_list}, {good, bad})
+            self.assertEqual({call.args[1].resolve() for call in probe.call_args_list}, {good.resolve(), bad.resolve()})
         self.assertEqual(json.loads((self.root / 'Data/completed.json').read_text())[SID + '/46'], str(good.resolve()))
 
     def test_cancelled_recovery_never_marks_an_unchecked_file_complete(self):
