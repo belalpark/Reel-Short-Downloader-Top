@@ -63,14 +63,14 @@ jobs:
         run: |
           curl --fail --location --retry 2 https://storage.googleapis.com/chrome-for-testing-public/142.0.7444.175/linux64/chrome-linux64.zip --output /tmp/chrome-hls.zip
           unzip -q /tmp/chrome-hls.zip -d /tmp/chrome-hls
+      - name: Retry current episode and resume only missing episodes
+        run: node tests/patient_browser.cjs
       - name: Blob HLS regression after eight HTML sources
         run: node tests/hls_browser.cjs
         env:
           HLS_BROWSER_EXECUTABLE: /tmp/chrome-hls/chrome-linux64/chrome
       - name: Offline browser integration
         run: node tests/browser.cjs
-      - name: Retry current episode and resume only missing episodes
-        run: node tests/patient_browser.cjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:

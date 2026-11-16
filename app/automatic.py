@@ -15,7 +15,7 @@ from urllib.parse import unquote, urlsplit
 
 from . import EXTENSION_VERSION
 from .catalog import load_catalog
-from .downloader import DownloadQueue
+from .downloader import DownloadQueue, validate_video
 from .paths import read_json, write_json
 
 
@@ -97,6 +97,7 @@ class Inbox:
 class AutomaticDownloads:
     def __init__(self, package: Path, inbox: Path, destination: Path, data: Path, emit):
         self.inbox, self.destination, self.data, self.emit = inbox, destination, data, emit
+        self.package = package
         self.lock = threading.RLock()
         self.enabled = False
         self.series_id = self.run_id = ""
@@ -162,6 +163,31 @@ class AutomaticDownloads:
     def completed_episodes(self, series_id=None):
         sid = series_id or self.series_id
         return [n for n in range(1, 151) if self._completed_file(sid, n)]
+
+    def recover_completed(self, series_id, cancelled=lambda: False):
+        """Recover valid files older versions saved before their batch checkpoint."""
+        if not re.fullmatch(r"[a-f0-9]{24}", series_id):
+            raise ValueError("Invalid series")
+        destination = self.destination.resolve()
+        recovered = {}
+        for folder in destination.glob('*_' + series_id):
+            if cancelled():
+                return self.completed_episodes(series_id)
+            if not folder.is_dir():
+                continue
+            for file in folder.glob('Episode_*'):
+                if cancelled():
+                    return self.completed_episodes(series_id)
+                match = re.fullmatch(r'Episode_([0-9]{3})\.(mp4|mkv|webm|m4v|mov)', file.name, re.I)
+                if not match or not 1 <= int(match[1]) <= 150 or self._completed_file(series_id, int(match[1])):
+                    continue
+                if file.resolve().is_relative_to(destination) and validate_video(self.package, file) and not cancelled():
+                    recovered[series_id + '/' + str(int(match[1]))] = str(file.resolve())
+        if recovered:
+            with self.lock:
+                self.completed.update(recovered)
+                write_json(self.data / 'completed.json', self.completed)
+        return self.completed_episodes(series_id)
 
     def progress(self):
         with self.lock:

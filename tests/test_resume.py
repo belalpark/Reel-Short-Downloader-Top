@@ -134,6 +134,30 @@ class ResumeTests(unittest.TestCase):
         self.assertTrue(bridge.pending_command['patient'])
         self.assertEqual(bridge.pending_command['completedEpisodes'], [1, 46])
 
+    def test_valid_unrecorded_files_are_recovered_without_reopening_their_pages(self):
+        folder = self.root / 'Videos' / ('Old title_' + SID)
+        folder.mkdir(parents=True)
+        good, bad = folder / 'Episode_046.mp4', folder / 'Episode_047.mp4'
+        good.write_bytes(b'valid-video' * 50)
+        bad.write_bytes(b'bad-response' * 50)
+        (folder / 'Episode_048.mp4.part').write_bytes(b'part' * 100)
+        (folder / 'Episode_049.mp4.invalid').write_bytes(b'invalid' * 100)
+        foreign = self.root / 'Videos' / ('Other_' + 'f' * 24)
+        foreign.mkdir()
+        (foreign / 'Episode_045.mp4').write_bytes(b'video' * 100)
+        with patch('app.automatic.validate_video', side_effect=lambda _root, file: file == good) as probe:
+            self.assertEqual(self.auto.recover_completed(SID), [46])
+            self.assertEqual({call.args[1] for call in probe.call_args_list}, {good, bad})
+        self.assertEqual(json.loads((self.root / 'Data/completed.json').read_text())[SID + '/46'], str(good.resolve()))
+
+    def test_cancelled_recovery_never_marks_an_unchecked_file_complete(self):
+        folder = self.root / 'Videos' / ('Title_' + SID)
+        folder.mkdir(parents=True)
+        (folder / 'Episode_046.mp4').write_bytes(b'file' * 100)
+        with patch('app.automatic.validate_video') as probe:
+            self.assertEqual(self.auto.recover_completed(SID, lambda: True), [])
+            probe.assert_not_called()
+
     def test_screenshot_case_counts_45_saved_and_61_remaining_without_missing_labels_on_saved_rows(self):
         entries = [Episode(SID, 'Fixture', n, 106, '', '') for n in range(1, 107)]
         rows, done, ready, remaining = catalog_view(entries, lambda e: e.episode <= 45, {})

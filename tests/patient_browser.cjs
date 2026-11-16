@@ -14,7 +14,7 @@ function html(n){
  const video=fs.readFileSync(path.join(__dirname,'fixture.webm.b64'),'utf8').trim();
  return `<!doctype html><title>Episode ${n} - Patient fixture | ReelShort</title><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(metadata)}</script>
  <video muted loop playsinline src="data:video/webm;base64,${video}"></video>
- ${[46,47,48].map(ep=>`<button onclick="choose(${ep})">${ep}</button>`).join(' ')}
+ ${[46,47,48].map(ep=>`<button aria-label="Episode ${ep}" onclick="choose(${ep})">${ep}</button>`).join(' ')}
  ${n>=47?[47,48].map(ep=>`<a href="${page(ep)}">episode ${ep}</a>`).join(' '):''}
  <script>function choose(n){if(n===47&&location.href.includes('episode-46-')){const tries=Number(localStorage.getItem('open47')||0)+1;localStorage.setItem('open47',tries);if(tries<=2)return;}location.href=${JSON.stringify(page(1))}.replace('episode-1-','episode-'+n+'-');}</script>`;
 }
@@ -34,6 +34,7 @@ function html(n){
   worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker',{timeout:60000});await setup.close();await popup.close();
   await context.route('https://www.reelshort.com/**',async route=>{const n=Number(new URL(route.request().url()).pathname.match(/episode-(\d+)/)?.[1]||46);if(route.request().isNavigationRequest())visits.push(n);return route.fulfill({contentType:'text/html',body:html(n)});});
   const reel=await context.newPage();await reel.goto(page(46));
+  assert.equal(await reel.locator('button[aria-label="Episode 47"]').count(),1);
   const state=()=>worker.evaluate(async()=>(await chrome.storage.local.get('dramaScannerV5Current')).dramaScannerV5Current);
   const send=value=>child.stdin.write(JSON.stringify(value)+'\n');
   send({command:'start',series_id:ID,patient:true,seed_completed:Array.from({length:46},(_,i)=>i+1),download_failures:{47:1}});

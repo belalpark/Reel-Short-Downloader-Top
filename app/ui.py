@@ -27,6 +27,7 @@ class DesktopApp:
         self.events, self.logs = queue.Queue(), []
         self.checks, self.checking, self.installing = [], False, False
         self.return_after_install = False
+        self.preparing, self.prepare_generation = False, 0
         self.entries, self.scan_meta = [], {}
         self.row_status = {}
         self.bridge = None
@@ -176,7 +177,7 @@ class DesktopApp:
         self.status.set("المسار منسوخ: فعّل Developer mode ثم Load unpacked والصق المسار مرة واحدة.")
 
     def start_download(self):
-        if not self._ready() or not self.bridge or self.automatic.enabled or self.automatic.queue.running:
+        if not self._ready() or not self.bridge or self.preparing or self.automatic.enabled or self.automatic.queue.running:
             return
         state = self.bridge.status()
         sid = series_from_page(state["page_url"])
@@ -186,8 +187,23 @@ class DesktopApp:
         if not sid:
             self.status.set("افتح صفحة المسلسل المطلوب في Edge ثم اضغط بدء التنزيل.")
             return
+        self.preparing = True
+        self.prepare_generation += 1
+        generation = self.prepare_generation
+        self.status.set("جارٍ التحقق من الملفات المحفوظة لتجاوز المكتمل واستئناف الناقص فقط…")
+        def prepare():
+            try:
+                completed = self.automatic.recover_completed(sid, lambda: generation != self.prepare_generation or self.closed)
+                self.events.put(("resume_ready", sid, completed, generation))
+            except (OSError, ValueError) as error:
+                self.events.put(("resume_failed", str(error), generation))
+        threading.Thread(target=prepare, daemon=True, name="recover-saved-files").start()
+
+    def _begin_download(self, sid, completed):
+        if not self.bridge or series_from_page(self.bridge.status()["page_url"]) != sid:
+            self.status.set("افتح نفس المسلسل في Edge ثم اضغط مواصلة التنزيل.")
+            return
         try:
-            completed = self.automatic.completed_episodes(sid)
             run_id = self.bridge.command("start", sid, patient=True, completed_episodes=completed)
             self.automatic.begin(sid, run_id, patient=True)
             self.entries, self.scan_meta, self.row_status = list(self.automatic.entries), {}, {}
@@ -199,13 +215,15 @@ class DesktopApp:
             self.status.set(str(error))
 
     def stop_download(self):
+        self.preparing = False
+        self.prepare_generation += 1
         if self.bridge:
             self.bridge.command("stop", self.automatic.series_id)
         threading.Thread(target=self.automatic.stop, daemon=True).start()
         self.status.set("تم طلب الإيقاف؛ يُحفظ تقدم التنزيل للاستئناف.")
 
     def choose_destination(self):
-        if self.automatic.enabled or self.automatic.queue.running:
+        if self.preparing or self.automatic.enabled or self.automatic.queue.running:
             self.status.set("أوقف التنزيل قبل تغيير المجلد.")
             return
         selected = filedialog.askdirectory(parent=self.root, title="مجلد حفظ المقاطع")
@@ -251,7 +269,16 @@ class DesktopApp:
             except queue.Empty:
                 break
             kind, *args = event
-            if kind == "checks":
+            if kind == "resume_ready":
+                if self.preparing and args[2] == self.prepare_generation:
+                    self.preparing = False
+                    self._begin_download(args[0], args[1])
+            elif kind == "resume_failed":
+                if args[1] == self.prepare_generation:
+                    self.preparing = False
+                    self.status.set("تعذر فحص مجلد الحفظ؛ تحقق من توفره ثم أعد المواصلة.")
+                    self.logs.append(redact(args[0]))
+            elif kind == "checks":
                 self.checks, self.checking = args[0], False
                 failures = [c for c in self.checks if not c["ok"]]
                 self.logs.extend(c["name"] + ": " + c["detail"] for c in self.checks)
@@ -296,11 +323,11 @@ class DesktopApp:
             self.status.set(state["command_error"])
             if self.automatic.enabled:
                 threading.Thread(target=self.automatic.stop, daemon=True).start()
-        active = self.automatic.enabled or self.automatic.queue.running
-        if active and self.scan_meta.get("paused") and not self.automatic.queue.running:
+        active = self.preparing or self.automatic.enabled or self.automatic.queue.running
+        if self.automatic.enabled and self.scan_meta.get("paused") and not self.automatic.queue.running:
             self.automatic.enabled = False
             self.status.set(self.scan_meta.get("note", "توقف الفحص؛ افتح الحلقة المطلوبة ثم اضغط بدء التنزيل."))
-        elif active and self.scan_meta.get("finished") and not self.automatic.queue.running:
+        elif self.automatic.enabled and self.scan_meta.get("finished") and not self.automatic.queue.running:
             with self.automatic.lock:
                 pending = self.automatic.pending()
                 if not pending:

@@ -64,6 +64,9 @@ def main():
             first_hash = hashlib.sha256(saved_first.read_bytes()).digest()
             first_requests = state['requests'].count('/1.webm')
             assert sid + '/1' in json.loads((root / 'Data/completed.json').read_text())
+            auto.completed.clear()
+            write_json(root / 'Data/completed.json', {})
+            assert auto.recover_completed(sid) == [1], 'Existing valid video must recover a missing older checkpoint'
 
             auto.tick()
             auto.queue.thread.join(timeout=55)
@@ -95,6 +98,7 @@ def main():
             reopened.close()
             write_json(args.report, {'actual_bundled_ytdlp': True, 'actual_bundled_ffprobe': True,
                 'first_episode_checkpointed_before_second': True, 'invalid_output_released_for_repair': True,
+                'existing_video_recovers_missing_checkpoint': True,
                 'same_url_fresh_capture_retried': True, 'retry_obeys_cooldown': True,
                 'repaired_video_sha256_matches': True, 'reopen_downloads_completed_again': False,
                 'completed_episodes': [1, 2], 'real_account_tested': False})
