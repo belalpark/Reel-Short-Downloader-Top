@@ -97,9 +97,10 @@ class LibraryEngine:
         self.capture, self.discovery_id = None, ''
 
     def stop(self):
-        self.stop_collection()
         with self.queue_lock:
             self.downloading = False
+        self.stop_collection()
+        with self.queue_lock:
             self.queue.cancel()
         self.store.save_setting('resume_downloads', False)
         self.note = 'توقفت المكتبة. الروابط والملفات المحفوظة باقية للمواصلة.'
@@ -321,8 +322,9 @@ class LibraryEngine:
             self.worker.join(timeout=8)
 
     def pause_for_exit(self):
-        self.stop_collection()
         self.shutdown.set()
+        self.wakeup.set()
+        self.stop_collection()
         with self.queue_lock:
             self.downloading = False
             self.queue.cancel()

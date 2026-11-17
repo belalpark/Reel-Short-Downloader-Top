@@ -15,14 +15,17 @@ class SessionHub:
         self.lock = threading.RLock()
         self.jobs = {}
         self.paused = False
+        self.generation = 0
 
-    def assign(self, slot, series, *, targets=(), skipped=(), page_url=''):
+    def assign(self, slot, series, *, targets=(), skipped=(), page_url='', expected_generation=None):
         if slot not in range(1, self.LIMIT+1) or not re.fullmatch(r'[a-f0-9]{24}', series['id']):
             raise ValueError('Invalid session')
         page = page_url or series['page_url']
         if series_from_page(page) != series['id']:
             raise ValueError('Invalid session page')
         with self.lock:
+            if expected_generation is not None and expected_generation!=self.generation:
+                return None
             if slot in self.jobs:
                 raise ValueError('Session slot occupied')
             if any(j['seriesId'] == series['id'] for j in self.jobs.values()):
@@ -44,6 +47,7 @@ class SessionHub:
 
     def stop(self):
         with self.lock:
+            self.generation+=1
             self.jobs.clear()
 
     def receive(self, path, body):

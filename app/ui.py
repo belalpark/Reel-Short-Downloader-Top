@@ -203,8 +203,8 @@ class DesktopApp:
         self.resume_single = self.automatic.enabled
         if self.library_engine:
             self.library_engine.resume_collection = self.library_engine.collecting
-            self.library_engine.stop_collection()
             self.library_engine.suspend_browser = True
+            self.library_engine.stop_collection()
         self.stop_download(single_only=True)
         self.recheck()
         self.installing = self.return_after_install = True

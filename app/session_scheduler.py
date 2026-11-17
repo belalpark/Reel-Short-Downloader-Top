@@ -13,6 +13,7 @@ class SessionScheduler:
 
     def stop(self):
         self.hub.stop()
+        self.order.clear()
 
     def finish(self, job, reason=''):
         self.hub.retire(job['slot'])
@@ -22,6 +23,7 @@ class SessionScheduler:
 
     def tick(self):
         engine, now = self.engine, time.time()
+        generation=self.hub.generation
         if engine.suspend_browser or engine.shutdown.is_set():
             return
         for job in self.hub.snapshot():
@@ -58,7 +60,7 @@ class SessionScheduler:
                 break
             series,targets = chosen
             if series['id'] not in self.prepared:
-                for ep in engine.automatic.recover_completed(series['id'],engine.shutdown.is_set):
+                for ep in engine.automatic.recover_completed(series['id'],lambda:engine.shutdown.is_set() or engine.suspend_browser or not (engine.collecting or engine.downloading)):
                     engine.store.complete(series['id'],ep,engine.automatic.completed[series['id']+'/'+str(ep)])
                 self.prepared.add(series['id'])
                 targets = engine.store.capture_targets(series,self.batch)
@@ -66,7 +68,11 @@ class SessionScheduler:
                     continue
             rows = {e['episode']:e for e in engine.store.episodes(series['id'])}
             page = rows.get(targets[0],{}).get('page_url') or series['page_url']
-            self.hub.assign(slot,series,targets=targets,skipped=engine.store.skip_sources(series['id']),page_url=page)
+            if engine.shutdown.is_set() or engine.suspend_browser or not (engine.collecting or engine.downloading):
+                return
+            assigned=self.hub.assign(slot,series,targets=targets,skipped=engine.store.skip_sources(series['id']),page_url=page,expected_generation=generation)
+            if not assigned:
+                return
             self.order[series['id']]=now
             active_series.add(series['id'])
             engine.note = f'السحب التلقائي: {len(self.hub.snapshot())} تبويبات مستقلة؛ التنزيل يبدأ عند وصول كل رابط صالح.'

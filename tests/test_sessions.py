@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -133,6 +134,16 @@ class SessionTests(unittest.TestCase):
         self.assertEqual(saved['events'][0]['http_status'],403)
         self.assertNotIn('secret',json.dumps(saved));self.assertNotIn('https://',json.dumps(saved))
         reopened=self.engine();self.assertEqual(reopened.diagnostics[0]['reason'],'http_forbidden')
+
+    def test_stop_during_file_recovery_cannot_launch_a_late_browser_session(self):
+        self.store.ingest(state(1,total=1));engine=self.engine();engine.collecting=engine.downloading=True
+        entered,released=threading.Event(),threading.Event()
+        def recover(*_):entered.set();released.wait(timeout=3);return []
+        engine.automatic.recover_completed=recover
+        thread=threading.Thread(target=engine.scheduler.tick);thread.start()
+        self.assertTrue(entered.wait(timeout=2));engine.stop();released.set();thread.join(timeout=3)
+        self.assertFalse(thread.is_alive());self.assertEqual(self.bridge.sessions.snapshot(),[])
+        engine.opener.assert_not_called()
 
 
 class DownloadWatchdogTests(unittest.TestCase):
