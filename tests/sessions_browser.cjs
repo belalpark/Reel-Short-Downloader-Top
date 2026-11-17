@@ -15,7 +15,7 @@ function html(url){
  if(!id)return '<!doctype html><title>Trigger catalog</title>'+[1,2,3].map(n=>`<p><a href="${page(n,1)}">Trigger ${n}</a></p>`).join('');
  const n=parseInt(id,16),metadata={props:{pageProps:{data:{book_id:id,book_title:'Trigger '+n,serial_number:ep,chapter_count:3,video_url:`https://v-mps.crazymaplestudios.com/${id}/${ep}.mp4`}}}};
  const video=fs.readFileSync(path.join(__dirname,'fixture.webm.b64'),'utf8').trim();
- const player=n===1&&ep===2?`<video id="movie" muted playsinline></video><script src="/fixture/hls.min.js"></script><script>const h=new Hls({enableWorker:false,maxBufferLength:20});h.loadSource(${JSON.stringify(stream(id,ep))});h.attachMedia(document.querySelector('video'));h.on(Hls.Events.MANIFEST_PARSED,()=>document.querySelector('video').play());</script>`:`<video muted loop playsinline src="data:video/webm;base64,${video}"></video>`;
+ const player=n===1&&ep===2?`<video id="movie" playsinline></video><script src="/fixture/hls.min.js"></script><script>const h=new Hls({enableWorker:false,maxBufferLength:20});h.loadSource(${JSON.stringify(stream(id,ep))});h.attachMedia(document.querySelector('video'));h.on(Hls.Events.MANIFEST_PARSED,()=>document.querySelector('video').play().catch(()=>{}));</script>`:`<video loop playsinline src="data:video/webm;base64,${video}"></video>`;
  return `<!doctype html><title>Episode ${ep} - Trigger ${n} | ReelShort</title><script id="__NEXT_DATA__" type="application/json">${JSON.stringify(metadata)}</script>${player}
  ${[1,2,3].map(k=>`<button aria-label="Episode ${k}" onclick="history.pushState({},'',${JSON.stringify(page(n,k)).replaceAll('"','&quot;')})">${k}</button>`).join(' ')}
  <!-- Deliberately no next-episode href: the collector must reload after a normal SPA button click. -->`;
@@ -62,11 +62,17 @@ function html(url){
   for(let n=1;n<=3;n++)for(let ep=2;ep<=3;ep++)assert.ok(visits.includes(page(n,ep)),'SPA selection must use a fresh document for '+page(n,ep));
   const maps=await worker.evaluate(async()=>(await chrome.storage.session.get('reelDesktopSessions')).reelDesktopSessions);
   assert.equal(new Set(Object.values(maps).map(s=>s.tabId)).size,3);
+  const managed=[];
+  for(const tab of context.pages())if(tab.url().startsWith('https://www.reelshort.com/')){
+   const channel=await tab.evaluate(()=>sessionStorage.getItem('__reelDesktopSession'));
+   if(channel){managed.push(channel);assert.equal(await tab.locator('video').evaluate(v=>v.muted),true,'managed background tabs must be muted for automatic playback');}
+  }
+  assert.equal(new Set(managed).size,3);
   const before=queued.length,beforeOpen=opens.length;
   for(const tab of context.pages())if(tab.url().startsWith('https://www.reelshort.com/'))await tab.close();
   send({command:'download'});await until(async()=>!(await status()).downloading,'completed-only resume without reopening Edge');
   assert.equal(queued.length,before);assert.equal(opens.length,beforeOpen);
-  fs.writeFileSync(path.join(OUT,'sessions-browser.json'),JSON.stringify({series:3,episodesEach:3,oneStartCommand:true,maximumConcurrentSeries:3,uniqueOwnedTabs:3,sessionIdsBoundToCorrectSeries:true,freshDocumentAfterSpaSelection:true,verifiedPlaybackPreferredToStaleHtml:true,failedEpisodeDeferredWithoutRelink:true,otherSeriesProgressedBeforeRetry:true,successfulFilesDownloadedOnce:9,totalAttempts:10,completedResumeMadeNoRequests:true,realDownloadTool:false,realAccountTested:false},null,2));
+  fs.writeFileSync(path.join(OUT,'sessions-browser.json'),JSON.stringify({series:3,episodesEach:3,oneStartCommand:true,maximumConcurrentSeries:3,uniqueOwnedTabs:3,sessionIdsBoundToCorrectSeries:true,managedTabsMutedForAutoplay:true,freshDocumentAfterSpaSelection:true,verifiedPlaybackPreferredToStaleHtml:true,failedEpisodeDeferredWithoutRelink:true,otherSeriesProgressedBeforeRetry:true,successfulFilesDownloadedOnce:9,totalAttempts:10,completedResumeMadeNoRequests:true,realDownloadTool:false,realAccountTested:false},null,2));
   console.log('Sessions passed: 3 isolated tabs, capture/download triggers, defer HTTP 403, progress other series, automatic fresh retry.');
  }catch(error){if(worker)try{fs.writeFileSync(path.join(OUT,'sessions-failed-state.json'),JSON.stringify(await worker.evaluate(async()=>({local:await chrome.storage.local.get(null),session:await chrome.storage.session.get(null)})),null,2));}catch(_){}throw error;}
  finally{if(context)await context.close();if(child){child.stdin.end();child.kill();await Promise.race([once(child,'exit'),delay(3000)]);}fs.rmSync(profile,{recursive:true,force:true});}

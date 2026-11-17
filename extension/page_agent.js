@@ -126,6 +126,7 @@
     await persist(state);
     if(state.autoMode){
       const player=document.querySelector('video');
+      if(CHANNEL&&player)player.muted=true;
       if(player?.paused)try{player.play()?.catch(()=>{});}catch(_){}
     }
     const result=await P.waitForPlayback(()=>document.querySelector('video'),{
