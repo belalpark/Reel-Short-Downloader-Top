@@ -1,0 +1,449 @@
+{
+  "date": "2026-11-17",
+  "app_version": "0.4.0",
+  "extension_version": "5.6.0",
+  "source_commit": "96071b2faf8af14997a5597776f287e31ace26c2",
+  "source_tree": "76f9283c407a59197e6699127ad73f511e8e2392",
+  "workflow_run": 44036169814,
+  "workflow_url": "https://github.com/belalpark/Reel-Short-Downloader-Top/actions/runs/44036169814",
+  "workflow_conclusion": "success",
+  "uploaded_source_tree_matches_local": true,
+  "bundled_usage_guide_version": "0.4.0",
+  "legacy_v53_files_sha256_verified": 15,
+  "unit_tests": {
+    "python": 83,
+    "javascript": 29,
+    "operating_systems": [
+      "ubuntu-24.04",
+      "windows-2022"
+    ]
+  },
+  "automatic_sessions_browser": {
+    "series": 3,
+    "episodesEach": 3,
+    "oneStartCommand": true,
+    "maximumConcurrentSeries": 3,
+    "uniqueOwnedTabs": 3,
+    "sessionIdsBoundToCorrectSeries": true,
+    "managedTabsMutedForAutoplay": true,
+    "freshDocumentAfterSpaSelection": true,
+    "verifiedPlaybackPreferredToStaleHtml": true,
+    "failedEpisodeDeferredWithoutRelink": true,
+    "otherSeriesProgressedBeforeRetry": true,
+    "successfulFilesDownloadedOnce": 9,
+    "totalAttempts": 10,
+    "completedResumeMadeNoRequests": true,
+    "realDownloadTool": false,
+    "realAccountTested": false
+  },
+  "library_browser": {
+    "syntheticSeries": 60,
+    "seededSourcesSkipped": 58,
+    "newSeriesCollected": 2,
+    "duplicateCatalogCardsDeduplicated": true,
+    "renderedShelfCrawled": true,
+    "landingPageUsesObservedEpisodeLink": true,
+    "offlineQueueItems": 60,
+    "noBrowserReopenedForValidLinks": true,
+    "oneFailedSourceRenewed": true,
+    "other59NotReopened": true,
+    "queuedItems": 61,
+    "realDownloadTool": false,
+    "realAccountTested": false
+  },
+  "patient_compatibility_browser": {
+    "completedEpisodesSkipped": 46,
+    "navigationFailuresBeforeSuccess": 2,
+    "failedDownloadRetriedOnSameEpisode": true,
+    "freshCaptureOnSameUrl": true,
+    "queuedEpisodes": [
+      47,
+      47,
+      48
+    ],
+    "stopPreventsScheduledRefresh": true,
+    "backendRestartRetainsCompletedFiles": true,
+    "resumeOnlyEpisode48": true,
+    "finalCompleted": 48,
+    "realDownloadTool": false,
+    "realAccountTested": false
+  },
+  "hls_browser": {
+    "browserVersion": "142.0.7444.175",
+    "hlsJsVersion": "1.6.13",
+    "initialHtmlSources": 8,
+    "hlsOnlySources": 4,
+    "totalSources": 12,
+    "queuedEpisodes": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "blobPlayback": true,
+    "staleSpaMetadata": true,
+    "normalTimelineBufferFull": true,
+    "lateHlsAbsentFromTimeline": true,
+    "unverifiedPrefetchDidNotClaimNextEpisode": true,
+    "verifiedDurationAndSegments": true,
+    "passes": 1,
+    "realAccountDownloadTested": false
+  },
+  "legacy_bounded_browser_compatibility": {
+    "browser": "141.0.7390.37",
+    "extensionVersion": "5.6.0",
+    "automaticConnection": true,
+    "pairingCodeRequired": false,
+    "manualCsvSelection": false,
+    "backgroundHeartbeat": true,
+    "explicitMedia": 3,
+    "queuedEpisodes": [
+      1,
+      2,
+      3
+    ],
+    "missingOnlyVisits": [
+      1,
+      1,
+      2
+    ],
+    "unavailablePasses": 3,
+    "cancelPreventsRefresh": true,
+    "appRestartStopsOldScan": true,
+    "restartNeedsManualReset": false,
+    "cachedMediaRefreshedOnNewStart": true,
+    "realAccountTested": false,
+    "errors": []
+  },
+  "real_synthetic_failure_download": {
+    "actual_bundled_ytdlp": true,
+    "actual_bundled_ffprobe": true,
+    "same_non_secret_headers_for_probe_and_download": true,
+    "http_403_classified": true,
+    "silent_transfer_cancelled_by_watchdog": true,
+    "next_series_completed_without_relink": true,
+    "good_video_sha256_matches": true,
+    "browser_cookies_read": false,
+    "real_account_tested": false
+  },
+  "real_synthetic_library_download": {
+    "synthetic_series": 60,
+    "episodes_per_series": 1,
+    "actual_bundled_ytdlp": true,
+    "actual_bundled_ffprobe": true,
+    "actual_source_checks": 60,
+    "closed_after_completed": 30,
+    "restart_restored_download_intent": true,
+    "resume_only_remaining": 30,
+    "completed_files_requested_again": false,
+    "all_60_file_hashes_match": true,
+    "browser_required": false,
+    "real_account_tested": false
+  },
+  "real_synthetic_retry_download": {
+    "actual_bundled_ytdlp": true,
+    "actual_bundled_ffprobe": true,
+    "first_episode_checkpointed_before_second": true,
+    "invalid_output_released_for_repair": true,
+    "existing_video_recovers_missing_checkpoint": true,
+    "same_url_fresh_capture_retried": true,
+    "retry_obeys_cooldown": true,
+    "repaired_video_sha256_matches": true,
+    "reopen_downloads_completed_again": false,
+    "completed_episodes": [
+      1,
+      2
+    ],
+    "real_account_tested": false
+  },
+  "real_synthetic_hls_download": {
+    "actual_ytdlp_hls": true,
+    "actual_ffmpeg": true,
+    "actual_ffprobe": true,
+    "video_and_audio_present": true,
+    "decoded_frames_match_source": true,
+    "matched_frames": 80,
+    "episode": 9,
+    "duration_seconds": 8.034104,
+    "real_account_download_tested": false
+  },
+  "real_synthetic_direct_download": {
+    "actual_ytdlp": true,
+    "actual_ffprobe": true,
+    "first_download": "passed",
+    "repeat_download": "passed",
+    "fixture_sha256": "f17b15b9d78c31f3441df0f78dd4ba2b81303e6ab91332f56bec24e45ca399ad",
+    "account_tested": false
+  },
+  "gui": {
+    "gui_created": true,
+    "steps": [
+      1,
+      2,
+      3
+    ],
+    "manual_csv_required": false,
+    "pairing_code_required": false,
+    "edge_automation_imported": true,
+    "runtime_checks_completed": true,
+    "width": 984,
+    "height": 658
+  },
+  "library_gui": {
+    "synthetic_rows": 60,
+    "size": [
+      984,
+      620
+    ],
+    "one_primary_automatic_button_visible": true,
+    "visually_reviewed": true
+  },
+  "edge": {
+    "normal_edge_ui": true,
+    "single_click_install": true,
+    "pairing_code_required": false,
+    "edge_heartbeat_verified": true,
+    "isolated_test_profile": true,
+    "real_account_tested": false,
+    "extension_version": "5.6.0"
+  },
+  "runtime": {
+    "checks": [
+      {
+        "name": "Windows 10/11 x64",
+        "ok": true,
+        "detail": "Windows-2022Server-10.0.20348-SP0"
+      },
+      {
+        "name": "Microsoft Edge",
+        "ok": true,
+        "detail": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      },
+      {
+        "name": "Package integrity",
+        "ok": true,
+        "detail": "1274 files verified"
+      },
+      {
+        "name": "yt-dlp",
+        "ok": true,
+        "detail": "2026.10.26"
+      },
+      {
+        "name": "ffmpeg",
+        "ok": true,
+        "detail": "ffmpeg version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2000-2026 the FFmpeg developers"
+      },
+      {
+        "name": "ffprobe",
+        "ok": true,
+        "detail": "ffprobe version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2007-2026 the FFmpeg developers"
+      },
+      {
+        "name": "User data",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\AppData\\Local\\ReelShortDownloaderTop"
+      },
+      {
+        "name": "Downloads",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\Downloads\\Reel Short Downloader Top"
+      }
+    ],
+    "extension_setup": "application step 2"
+  },
+  "installed_runtime": {
+    "checks": [
+      {
+        "name": "Windows 10/11 x64",
+        "ok": true,
+        "detail": "Windows-2022Server-10.0.20348-SP0"
+      },
+      {
+        "name": "Microsoft Edge",
+        "ok": true,
+        "detail": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      },
+      {
+        "name": "Package integrity",
+        "ok": true,
+        "detail": "1274 files verified"
+      },
+      {
+        "name": "yt-dlp",
+        "ok": true,
+        "detail": "2026.10.26"
+      },
+      {
+        "name": "ffmpeg",
+        "ok": true,
+        "detail": "ffmpeg version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2000-2026 the FFmpeg developers"
+      },
+      {
+        "name": "ffprobe",
+        "ok": true,
+        "detail": "ffprobe version n8.1.3-35-gf1acb0a266-20261114 Copyright (c) 2007-2026 the FFmpeg developers"
+      },
+      {
+        "name": "User data",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\AppData\\Local\\ReelShortDownloaderTop"
+      },
+      {
+        "name": "Downloads",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\Downloads\\Reel Short Downloader Top"
+      }
+    ],
+    "extension_setup": "application step 2"
+  },
+  "installer": {
+    "activationRequiredDuringInstall": false,
+    "installExitCode": 0,
+    "missingToolExitCode": 12,
+    "uninstallExitCode": 0,
+    "runtimeExitCode": 0
+  },
+  "interactive_installer": {
+    "real_installer": true,
+    "finish_after_core_requirements": true,
+    "pairing_wizard_required": false,
+    "application_launched": true,
+    "uninstall_passed": true,
+    "missing_tool_blocks_finish": true,
+    "incomplete_exit_code": 12
+  },
+  "missing_tool_integrity_check": {
+    "checks": [
+      {
+        "name": "Windows 10/11 x64",
+        "ok": true,
+        "detail": "Windows-2022Server-10.0.20348-SP0"
+      },
+      {
+        "name": "Microsoft Edge",
+        "ok": true,
+        "detail": "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
+      },
+      {
+        "name": "Package integrity",
+        "ok": false,
+        "detail": "Missing package file: tools/ffmpeg.exe"
+      },
+      {
+        "name": "yt-dlp",
+        "ok": false,
+        "detail": "Package integrity check failed"
+      },
+      {
+        "name": "ffmpeg",
+        "ok": false,
+        "detail": "Package integrity check failed"
+      },
+      {
+        "name": "ffprobe",
+        "ok": false,
+        "detail": "Package integrity check failed"
+      },
+      {
+        "name": "User data",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\AppData\\Local\\ReelShortDownloaderTop"
+      },
+      {
+        "name": "Downloads",
+        "ok": true,
+        "detail": "C:\\Users\\runneradmin\\Downloads\\Reel Short Downloader Top"
+      }
+    ],
+    "extension_setup": "application step 2"
+  },
+  "installer_file": {
+    "name": "ReelShortDownloaderTop-Setup-0.4.0-win-x64.exe",
+    "size_bytes": 92562911,
+    "sha256": "6ce03d94b9ead317a2be79ecb6b00afe2655cdff785d0c7bfa5b22bd1330d0a4",
+    "pe_header_verified": true,
+    "original_build_checksums_verified": true,
+    "delivery_run": 44037333877,
+    "artifact_id": 14307219237,
+    "artifact_sha256": "9837d22e027f7897894f0135f9ff0726e9c5395a070f6b9b67d647ceb013f01e"
+  },
+  "user_zip": {
+    "name": "ReelShortDownloaderTop-Setup-0.4.0-win-x64.zip",
+    "size_bytes": 92566757,
+    "sha256": "b8e591b8838d4851061b14b5e65735e6c0a9de5925d2de8a077f654925d38b88",
+    "crc_test_passed": true
+  },
+  "evidence_artifacts": [
+    {
+      "id": 14307910859,
+      "name": "browser-evidence",
+      "size_bytes": 21084,
+      "sha256": "70f87dce4a5a4f0a6fdaf52971cf35719af0907da9b5969206ab2f4e3042fb1c",
+      "download_digest_verified": true
+    },
+    {
+      "id": 14308335243,
+      "name": "windows-evidence",
+      "size_bytes": 546646,
+      "sha256": "e1b48484e05fa4c27cdc9d13a0d7618385e122c0df4b516c8dc110d9ff05d455",
+      "download_digest_verified": true
+    }
+  ],
+  "visual_review": [
+    "gui.png",
+    "library.png",
+    "edge-installed.png",
+    "installer-incomplete.png"
+  ],
+  "additional_regressions_verified": [
+    "Wrong-tab, wrong-series and stale session snapshots rejected",
+    "Stop during file recovery cannot launch a late session",
+    "Older incomplete series considered before fresh catalog entries",
+    "Same-URL recapture preserves failure cooldown",
+    "0.3 schema upgrade preserves completed records",
+    "Diagnostic reason survives reopening and omits signed media URLs"
+  ],
+  "configured_limits": {
+    "concurrent_capture_tabs": 3,
+    "episodes_per_capture_batch": 6,
+    "capture_job_seconds": 180,
+    "capture_heartbeat_idle_seconds": 45,
+    "download_no_progress_seconds": 45,
+    "download_total_seconds": 1800,
+    "catalog_series": 1000,
+    "catalog_pages": 40
+  },
+  "user_specific_failure": {
+    "reported_episode": 3,
+    "screenshot_shows_available_link_and_retries": true,
+    "user_reports_reconnect_downloads_current_episode": true,
+    "actual_downloader_error_log_available": false,
+    "connected_reelshort_tab_available_during_inspection": false,
+    "exact_device_failure_cause_confirmed": false
+  },
+  "release_published": false,
+  "real_user_account_download_tested": false,
+  "private_user_media_or_browser_screenshots_published": false,
+  "pending_acceptance": [
+    "Real authorized account library and actual episode content",
+    "Existing Windows 11 data upgrade and Windows 10 acceptance",
+    "DPI 125/150 percent",
+    "Long interrupted .part resumption, redirected Downloads folder and multi-hour unattended use"
+  ],
+  "resolved_design_issues": [
+    "Replaced the primary infinite patient wait with independent collection/download scheduling",
+    "Isolated tab leases and storage, with stop-generation invalidation",
+    "Preferred verified playback HLS over stale HTML in session mode",
+    "Fresh document after SPA episode selection and muted managed tabs",
+    "Consistent ordinary media headers and explicit HTTP/storage/stall diagnostics"
+  ]
+}
