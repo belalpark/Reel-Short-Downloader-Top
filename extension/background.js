@@ -1,5 +1,5 @@
 'use strict';
-importScripts('export_core.js', 'desktop_bridge.js');
+importScripts('export_core.js', 'session_bridge.js', 'desktop_bridge.js');
 const {csvEscape, safeName} = DramaExportCore;
 function records(state) {
   const data=[];

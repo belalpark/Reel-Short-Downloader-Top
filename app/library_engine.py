@@ -8,11 +8,14 @@ from .catalog import Episode
 from .downloader import DownloadQueue, redact
 from .media_check import MediaVerifier
 from .paths import read_json
+from .paths import write_json
+from .failures import explanation, retry_delay
+from .session_scheduler import SessionScheduler
 from .runtime import open_edge
 
 
 class LibraryEngine:
-    def __init__(self, store, bridge, automatic, package, data, destination, emit, *, verifier=None, opener=open_edge):
+    def __init__(self, store, bridge, automatic, package, data, destination, emit, *, verifier=None, opener=open_edge, session_hub=None):
         self.store, self.bridge, self.automatic = store, bridge, automatic
         self.package, self.data, self.destination, self.emit = package, data, destination, emit
         self.verifier, self.opener = verifier or MediaVerifier(), opener
@@ -30,10 +33,21 @@ class LibraryEngine:
         self.discovery_started = 0
         self.saved_recheck = False
         self.suspend_browser = False
+        self.wakeup = threading.Event()
+        self.scheduler = SessionScheduler(self,session_hub) if session_hub else None
+        self.diagnostics = []
 
     @property
     def active(self):
-        return self.collecting or self.downloading or self.queue.running or bool(self.capture or self.discovery_id)
+        return self.collecting or self.downloading or self.queue.running or bool(self.capture or self.discovery_id or (self.scheduler and self.scheduler.hub.snapshot()))
+
+    def start_all(self):
+        if self.active:
+            return
+        self.store.release_deferred()
+        self.start_collection()
+        self.start_downloads()
+        self.wakeup.set()
 
     def start_worker(self):
         self.store.recover_interrupted()
@@ -62,13 +76,15 @@ class LibraryEngine:
         series = self.store.series()
         if not series:
             self.start_collection()
-        elif any(not s['total'] or len(self.store.skip_sources(s['id'])) < s['total'] for s in series):
+        elif any(not s['total'] or s['known_sources'] < s['total'] for s in series):
             self.collecting = True
         self.note = 'تنزيل المكتبة يعمل. يمكن إغلاق Edge ما دامت الروابط صالحة؛ يفتح لتجديد رابط متعذر عند الحاجة.'
         self.changed()
 
     def stop_collection(self):
         self.collecting = False
+        if self.scheduler:
+            self.scheduler.stop()
         if self.capture or self.discovery_id:
             self.bridge.command('stop')
         self.capture, self.discovery_id = None, ''
@@ -93,6 +109,7 @@ class LibraryEngine:
             if file:
                 self.store.complete(sid, ep, file)
         self.changed()
+        self.wakeup.set()
 
     def _open(self, series, renewal=None):
         if self.shutdown.is_set() or not (self.collecting or (self.downloading and renewal)):
@@ -124,6 +141,9 @@ class LibraryEngine:
                 self.discovery_id = ''
                 self.note = 'تعذر إكمال الفهرس؛ المحفوظ باقٍ. استخدم إعادة الربط والفحص.'
                 self.changed()
+            return
+        if self.scheduler:
+            self.scheduler.tick()
             return
         if self.capture:
             job = self.capture
@@ -202,13 +222,15 @@ class LibraryEngine:
                 self.store.complete(item['sid'], item['episode'], self.automatic.completed[item['sid'] + '/' + str(item['episode'])])
                 self.changed()
                 return
-            check = self.verifier.check(item['media_url'], item['page_url'])
+            check = self.verifier.check(item['media_url'], item['page_url'], item['user_agent']) if item.get('user_agent') else self.verifier.check(item['media_url'], item['page_url'])
             if check.ok:
                 self.store.update_source(item, 'ready', verified=check.checked_at)
             elif check.reason in ('connection_failed', 'rate_limited'):
                 self.store.update_source(item, 'captured', error=check.reason, next_try=time.time() + (60 if check.reason == 'rate_limited' else 30))
             else:
-                self.store.update_source(item, 'blocked' if check.reason in ('unsupported_source', 'protected_source') else 'needs_refresh', error=check.reason)
+                self.store.record_failure(item,check.reason,status='blocked' if check.reason in ('unsupported_source','protected_source') else 'needs_refresh',next_try=time.time()+retry_delay(check.reason,item['attempts']+1))
+                self.note=f"{item['title']} — الحلقة {item['episode']}: {explanation(check.reason)}"
+                self.emit(('library_error',self.note))
             self.changed()
         if self.downloading and not self.queue.running:
             item = self.store.next_source('ready')
@@ -225,7 +247,7 @@ class LibraryEngine:
                         self.active_item = None
                         return
                     self.store.update_source(item, 'downloading', verified=item['verified'])
-                    self.queue.start([Episode(item['sid'], item['title'], item['episode'], item['total'], item['page_url'], item['media_url'], 'playback_verified', 'media_found', item['source_type'], item['generation'])], self.destination)
+                    self.queue.start([Episode(item['sid'], item['title'], item['episode'], item['total'], item['page_url'], item['media_url'], 'playback_verified', 'media_found', item['source_type'], item['generation'], item.get('user_agent',''))], self.destination)
             elif not self.collecting and not self.capture and not self.discovery_id:
                 series = self.store.series()
                 if series and all(s['total'] and s['done'] == s['total'] for s in series):
@@ -242,10 +264,17 @@ class LibraryEngine:
                 self.store.complete(item['sid'], item['episode'], result['file'])
                 self.automatic.record_library_completion(item['sid'], item['episode'], result['file'])
             elif not result['status'].startswith('متوقف'):
-                self.store.update_source(item, 'captured', error='download_retry', next_try=time.time() + 10)
+                reason=result.get('reason') or 'download_failed'
+                self.store.record_failure(item,reason,status='blocked' if reason=='protected_source' else 'captured' if reason in ('network_error','download_stalled','download_timeout','disk_full','write_error') else 'needs_refresh',next_try=time.time()+retry_delay(reason,item['attempts']+1))
+                self.note=f"{item['title']} — الحلقة {item['episode']}: {explanation(reason)}"
+                self.diagnostics.append({'series_id':item['sid'],'episode':item['episode'],'reason':reason,'http_status':result.get('http_status',0),'detail':redact(result.get('detail','')),'time':time.time()})
+                self.diagnostics=self.diagnostics[-100:]
+                write_json(self.data/'download_diagnostics.json',{'events':self.diagnostics})
+                self.emit(('library_error',self.note))
             else:
                 self.store.update_source(item, 'ready', verified=item['verified'])
             self.changed()
+            self.wakeup.set()
         elif event[0] == 'progress':
             self.emit(('library_progress', event[1], event[2]))
         elif event[0] == 'log':
@@ -263,7 +292,9 @@ class LibraryEngine:
                     self.store.complete(series['id'], ep, self.automatic.completed[series['id'] + '/' + str(ep)])
         except (OSError, ValueError, sqlite3.Error) as error:
             self.emit(('log', redact(str(error))))
-        while not self.shutdown.wait(0.6):
+        while not self.shutdown.is_set():
+            self.wakeup.wait(0.6)
+            self.wakeup.clear()
             try:
                 self.tick()
             except (OSError, ValueError, sqlite3.Error) as error:
@@ -272,6 +303,9 @@ class LibraryEngine:
     def close(self):
         # Explicit Stop clears resume intent; closing the window preserves it.
         self.shutdown.set()
+        self.wakeup.set()
+        if self.scheduler:
+            self.scheduler.stop()
         self.collecting = False
         with self.queue_lock:
             self.downloading = False

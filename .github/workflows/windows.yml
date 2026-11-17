@@ -65,6 +65,10 @@ jobs:
           unzip -q /tmp/chrome-hls.zip -d /tmp/chrome-hls
       - name: Retry current episode and resume only missing episodes
         run: node tests/patient_browser.cjs
+      - name: Automatic triggers in three isolated series tabs and deferred failure recovery
+        run: node tests/sessions_browser.cjs
+        env:
+          HLS_BROWSER_EXECUTABLE: /tmp/chrome-hls/chrome-linux64/chrome
       - name: Collect a 60-series library and download with the source tab closed
         run: node tests/library_browser.cjs
       - name: Blob HLS regression after eight HTML sources
@@ -112,6 +116,8 @@ jobs:
         run: python -m scripts.smoke_hls --root dist/ReelShortDownloaderTop --report test-results/hls-download.json
       - name: Test real failed-download repair and missing-only resume
         run: python -m scripts.smoke_retry --root dist/ReelShortDownloaderTop --report test-results/retry-download.json
+      - name: Test HTTP 403, a stalled transfer and next-series progress using real tools
+        run: python -m scripts.smoke_failures --root dist/ReelShortDownloaderTop --report test-results/failure-download.json
       - name: Test 60 real library downloads, restart at 30 and resume only remaining
         run: python -m scripts.smoke_library --root dist/ReelShortDownloaderTop --report test-results/library-download.json
       - name: Compile installer
@@ -129,7 +135,7 @@ jobs:
       - name: Create portable archive and checksums
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/ReelShortDownloaderTop -DestinationPath release/ReelShortDownloaderTop-Portable-0.3.0-win-x64.zip
+          Compress-Archive -Path dist/ReelShortDownloaderTop -DestinationPath release/ReelShortDownloaderTop-Portable-0.4.0-win-x64.zip
           Get-ChildItem release -File | ForEach-Object {
             $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $($_.Name)"

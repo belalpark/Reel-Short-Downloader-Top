@@ -52,6 +52,9 @@ class LibraryStore:
               CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
               CREATE INDEX IF NOT EXISTS episode_work ON episodes(status,next_try);
             ''')
+            columns = {r[1] for r in db.execute('PRAGMA table_info(episodes)')}
+            if 'user_agent' not in columns:
+                db.execute("ALTER TABLE episodes ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''")
 
     def recover_interrupted(self):
         with self.db() as db:
@@ -83,6 +86,8 @@ class LibraryStore:
             raise ValueError('Invalid library batch')
         checked = []
         for item in items:
+            if not isinstance(item, dict):
+                raise ValueError('Invalid library item')
             sid = str(item.get('id', '')).lower()
             page = series_page(str(item.get('pageUrl', '')), sid)
             if not SID.fullmatch(sid) or not page:
@@ -126,11 +131,11 @@ class LibraryStore:
                 generation = str(row.get('captureId') or row.get('observedAt') or '')[:100]
                 if not media or row.get('playbackStatus') != 'playback_verified' or not trusted_source(media) or not generation:
                     continue
-                db.execute('''UPDATE episodes SET media_url=?,source_type=?,generation=?,
+                db.execute('''UPDATE episodes SET media_url=?,source_type=?,generation=?,user_agent=?,
                     status=CASE WHEN status='done' THEN status ELSE 'captured' END,
-                    observed=?,verified=0,expires=?,error='',next_try=0
+                    observed=?,verified=0,expires=?,error='',next_try=CASE WHEN media_url<>? THEN 0 ELSE next_try END
                     WHERE sid=? AND episode=? AND (generation<>? OR media_url<>?)''',
-                    (media, str(row.get('sourceType', ''))[:60], generation, now, source_expiry(media), sid, n, generation, media))
+                    (media, str(row.get('sourceType', ''))[:60], generation, str(state.get('browserUserAgent', ''))[:300], now, source_expiry(media), media, sid, n, generation, media))
 
     def series(self):
         with self.db() as db:
@@ -138,18 +143,53 @@ class LibraryStore:
               COALESCE(SUM(e.status='done'),0) done,
               COALESCE(SUM(e.status IN ('ready','downloading') AND (e.expires=0 OR e.expires>?)),0) ready,
               COALESCE(SUM(e.status='captured'),0) checking,
-              COALESCE(SUM(e.status='needs_refresh'),0) refresh
+              COALESCE(SUM(e.status='needs_refresh'),0) refresh,
+              COALESCE(MIN(CASE WHEN e.status NOT IN ('done','blocked') AND e.next_try>? THEN e.next_try END),0) retry_at,
+              COALESCE(SUM(e.status='done' OR (e.media_url<>'' AND e.status IN ('captured','ready','downloading') AND (e.expires=0 OR e.expires>?))),0) known_sources,
+              COALESCE(SUM(e.status NOT IN ('done','blocked','downloading') AND e.next_try<=? AND (e.media_url='' OR e.status='needs_refresh' OR (e.expires<>0 AND e.expires<=?))),0) capture_due
               FROM series s LEFT JOIN episodes e ON e.sid=s.id AND e.episode<=s.total
-              GROUP BY s.id ORDER BY s.discovered,s.id''', (time.time()+30,))]
+              GROUP BY s.id ORDER BY s.discovered,s.id''', (time.time()+30,time.time(),time.time()+30,time.time(),time.time()+30))]
 
     def episodes(self, sid):
         with self.db() as db:
             return [dict(r) for r in db.execute('SELECT * FROM episodes WHERE sid=? ORDER BY episode', (sid,))]
 
     def skip_sources(self, sid):
-        now = time.time()
-        return [e['episode'] for e in self.episodes(sid) if e['status'] == 'done' or
-                (e['media_url'] and e['status'] in ('captured', 'ready', 'downloading') and (not e['expires'] or e['expires'] > now + 30))]
+        with self.db() as db:
+            return [r[0] for r in db.execute('''SELECT e.episode FROM episodes e JOIN series s ON s.id=e.sid
+                WHERE e.sid=? AND e.episode<=s.total AND (e.status='done' OR
+                  (e.media_url<>'' AND e.status IN ('captured','ready','downloading') AND (e.expires=0 OR e.expires>?)))''', (sid, time.time()+30))]
+
+    def capture_targets(self, series, limit=6):
+        if not series['total']:
+            return list(range(1, limit+1))
+        skipped = set(self.skip_sources(series['id']))
+        return [e['episode'] for e in self.episodes(series['id']) if e['episode']<=series['total'] and
+                e['episode'] not in skipped and e['status']!='blocked' and e['next_try']<=time.time()][:limit]
+
+    def record_failure(self, item, reason, *, status='needs_refresh', next_try=0):
+        with self.db() as db:
+            db.execute("UPDATE episodes SET status=?,error=?,attempts=attempts+1,next_try=? WHERE sid=? AND episode=? AND generation=? AND status<>'done'",
+                       (status,reason[:100],next_try,item['sid'],item['episode'],item['generation']))
+
+    def finish_capture(self, sid, targets, *, reason='', next_scan=0):
+        skipped = set(self.skip_sources(sid))
+        with self.db() as db:
+            for n in targets:
+                if n in skipped:
+                    continue
+                row = db.execute('SELECT * FROM episodes WHERE sid=? AND episode=?',(sid,n)).fetchone()
+                if row and row['status'] not in ('done','blocked'):
+                    delay = 60 if reason=='rate_limited' else min(300,30*2**min(4,row['attempts']))
+                    db.execute("UPDATE episodes SET attempts=attempts+1,error=?,next_try=MAX(next_try,?) WHERE sid=? AND episode=?",
+                               (reason or 'source_not_captured',time.time()+delay,sid,n))
+            db.execute('UPDATE series SET scanned=?,next_scan=?,error=? WHERE id=?',
+                       (time.time(),next_scan,reason[:100],sid))
+
+    def release_deferred(self):
+        with self.db() as db:
+            db.execute("UPDATE episodes SET next_try=0 WHERE status NOT IN ('done','blocked','downloading') AND error<>'rate_limited'")
+            db.execute('UPDATE series SET next_scan=0')
 
     def next_source(self, status):
         with self.db() as db:

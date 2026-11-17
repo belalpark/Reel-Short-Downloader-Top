@@ -24,6 +24,7 @@ class Episode:
     source_status: str = ""
     source_type: str = ""
     capture_id: str = ""
+    user_agent: str = ""
 
 
 def safe_name(value: str) -> str:
@@ -107,7 +108,7 @@ def load_catalog(path: Path) -> list[Episode]:
                     if identity in media_seen:
                         raise ValueError("رابط الفيديو نفسه منسوب لأكثر من حلقة؛ راجع الفهرس.")
                     media_seen.add(identity)
-                result.append(Episode(sid, row["SeriesTitle"].strip()[:250] or "Series", ep, count, page, media, row.get("PlaybackStatus", "not_checked"), row.get("SourceStatus", ""), row.get("SourceType", ""), row.get("CaptureID", "")[:100]))
+                result.append(Episode(sid, row["SeriesTitle"].strip()[:250] or "Series", ep, count, page, media, row.get("PlaybackStatus", "not_checked"), row.get("SourceStatus", ""), row.get("SourceType", ""), row.get("CaptureID", "")[:100], row.get('UserAgent','')[:300]))
         except (csv.Error, UnicodeError) as e:
             raise ValueError("تعذر قراءة CSV؛ أعد تصديره بترميز UTF-8.") from e
     if not result:

@@ -3,6 +3,7 @@ from datetime import datetime
 import time
 import tkinter as tk
 from tkinter import ttk
+from .failures import explanation
 
 
 class LibraryWindow:
@@ -16,13 +17,12 @@ class LibraryWindow:
         body = ttk.Frame(self.window, padding=16)
         body.pack(fill='both', expand=True)
         ttk.Label(body, text='مكتبة المسلسلات', anchor='e', font=('Segoe UI', 19, 'bold')).pack(fill='x')
-        ttk.Label(body, text='اجمع الروابط من Edge، ثم نزّل المكتبة. عند تعذر رابط يفتح Edge لتجديده؛ لا ضمان لرابط دائم.', anchor='e', wraplength=990).pack(fill='x', pady=(6, 10))
+        ttk.Label(body, text='زر واحد يجمع الروابط وينزّلها. حتى ٣ تبويبات مستقلة؛ المتعثر يُجدول لاحقًا دون حجز البقية.', anchor='e', wraplength=990).pack(fill='x', pady=(6, 10))
         self.summary = tk.StringVar()
         ttk.Label(body, textvariable=self.summary, anchor='e', font=('Segoe UI', 11, 'bold')).pack(fill='x', pady=(0, 8))
         actions = ttk.Frame(body)
         actions.pack(fill='x', pady=(0, 10))
-        ttk.Button(actions, text='جمع المسلسلات', command=app.collect_library).pack(side='right')
-        ttk.Button(actions, text='تنزيل / مواصلة المكتبة', command=app.download_library, style='Primary.TButton').pack(side='right', padx=6)
+        ttk.Button(actions, text='ابدأ السحب والتنزيل تلقائيًا', command=app.start_automatic, style='Primary.TButton').pack(side='right', padx=6)
         ttk.Button(actions, text='إيقاف المكتبة', command=app.stop_library).pack(side='right')
         ttk.Button(actions, text='فحص / إعادة الربط', command=app.reconnect).pack(side='left')
         frame = ttk.Frame(body)
@@ -40,6 +40,12 @@ class LibraryWindow:
         ttk.Label(body, textvariable=self.note, anchor='e', wraplength=990).pack(fill='x', pady=(10, 5))
         ttk.Label(body, text='انقر المسلسل مرتين لعرض الحلقات وآخر فحص للرابط.', anchor='e').pack(fill='x')
         self.refresh()
+        self.window.after(1000,self.tick)
+
+    def tick(self):
+        if self.window.winfo_exists():
+            self.refresh()
+            self.window.after(1000,self.tick)
 
     def refresh(self):
         if not self.window.winfo_exists():
@@ -47,8 +53,15 @@ class LibraryWindow:
         series = self.app.library_store.series()
         self.summary.set(f"المسلسلات: {len(series)}   |   الحلقات: {sum(s['total'] for s in series)}   |   روابط موثقة: {sum(s['ready'] for s in series)}   |   محفوظ: {sum(s['done'] for s in series)}")
         existing = set(self.table.get_children())
+        engine=self.app.library_engine
+        jobs={j['seriesId']:j for j in engine.scheduler.hub.snapshot()} if engine and engine.scheduler else {}
         for item in series:
             status = 'محفوظ بالكامل' if item['total'] and item['done'] == item['total'] else 'يحتاج تجديد روابط' if item['refresh'] else 'روابط جاهزة' if item['ready'] else 'فحص الروابط جارٍ' if item['checking'] else 'الحلقات لم تجمع بعد' if not item['total'] else 'بانتظار الروابط الناقصة'
+            if item['id'] in jobs:
+                job=jobs[item['id']];status=f"تبويب {job['slot']} — الحلقة {job['current'] or '…'}"
+            elif item['done']!=item['total']:
+                due=item['retry_at']
+                if due:status=f'محاولة تلقائية بعد {max(1,int(due-time.time()))} ثانية'
             fields = (status,item['done'],item['ready'],item['total'] or '—',item['title'])
             if self.table.exists(item['id']):
                 self.table.item(item['id'], values=fields)
@@ -75,6 +88,8 @@ class LibraryWindow:
         for row in self.app.library_store.episodes(chosen[0]):
             stamp = lambda t: datetime.fromtimestamp(t).strftime('%Y-%m-%d %H:%M') if t else 'غير معلن'
             status = labels.get(row['status'], row['status'])
+            if row['error']:
+                status+=' — '+explanation(row['error'])
             if row['status'] == 'ready' and row['expires'] and row['expires'] <= time.time()+30:
                 status = 'انتهت الصلاحية المعلنة — يحتاج تجديدًا'
             table.insert('','end',values=(stamp(row['expires']),stamp(row['verified']),status,row['episode']))

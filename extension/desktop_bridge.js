@@ -29,14 +29,15 @@
     const owner=(await chrome.storage.session.get('desktopOwnerTab')).desktopOwnerTab;
     const state=(await chrome.storage.local.get(STORE))[STORE];
     if(owner&&state?.running&&state.autoMode){try{return await chrome.tabs.get(owner);}catch(_){}}
-    const tabs=await chrome.tabs.query({url:'https://www.reelshort.com/*'});
+    const managed=globalThis.ReelSessions?await ReelSessions.tabIds():[];
+    const tabs=(await chrome.tabs.query({url:'https://www.reelshort.com/*'})).filter(t=>!managed.includes(t.id));
     return tabs.sort((a,b)=>(b.lastAccessed||0)-(a.lastAccessed||0))[0]||null;
   }
   function sanitizedState(state){
     const rows={};
     for(const [key,row] of Object.entries(state.rows||{}))rows[key]={episode:row.episode,pageUrl:row.pageUrl||'',mediaUrl:row.mediaUrl||'',playbackStatus:row.playbackStatus||'',status:row.status||'',sourceType:row.sourceType||'',captureId:row.captureId||'',observedAt:row.checkedAt||''};
     return {seriesId:state.seriesId,title:state.title,total:state.total,rows,desktopCommandId:state.desktopCommandId,
-      running:!!state.running,paused:!!state.paused,finished:!!state.finished,autoPass:state.autoPass||1,rateLimited:!!state.rateLimited,seriesPageUrl:state.seriesPageUrl||'',note:state.note||'',updatedAt:state.updatedAt||''};
+      running:!!state.running,paused:!!state.paused,finished:!!state.finished,autoPass:state.autoPass||1,rateLimited:!!state.rateLimited,seriesPageUrl:state.seriesPageUrl||'',browserUserAgent:state.browserUserAgent||'',note:state.note||'',updatedAt:state.updatedAt||''};
   }
   function publish(state){
     if(!state?.autoMode||!state.desktopCommandId)return Promise.resolve({ok:true});
@@ -45,6 +46,7 @@
     publishChain=result;return result;
   }
   async function poll(sender,pageUrl){
+    if(globalThis.ReelSessions&&await ReelSessions.poll(sender,pageUrl))return {ok:true,session:true};
     if(busy)return {ok:true};
     const target=await targetTab();
     if(!target||target.id!==sender.tab.id)return {ok:true};
@@ -115,7 +117,7 @@
     const tab=await targetTab();if(tab)try{await chrome.tabs.reload(tab.id);}catch(_){}
   });
   chrome.runtime.onStartup.addListener(()=>{alarm();post('/connect').catch(()=>{});});
-  chrome.alarms.onAlarm.addListener(item=>{if(item.name==='desktop-readiness')post('/connect').catch(()=>{});});
+  chrome.alarms.onAlarm.addListener(item=>{if(item.name==='desktop-readiness'){post('/connect').catch(()=>{});globalThis.ReelSessions?.reconcile(true).catch(()=>{});}});
   alarm().catch(()=>{});
   globalThis.ReelDesktop=Object.freeze({publish});
 })();

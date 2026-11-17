@@ -37,6 +37,9 @@ class DesktopApp:
         self.bridge = None
         self.library_engine = self.library_window = None
         self.library_restore_checked = self.resume_single = False
+        self.auto_start_requested = False
+        self.library_dirty = False
+        self.last_library_refresh = 0
         self.library_temporary = tempfile.TemporaryDirectory() if smoke else None
         self.library_store = LibraryStore((Path(self.library_temporary.name) if smoke else data_root()) / 'library.sqlite3')
         self.extension_folder = data_root() / "Extension"
@@ -79,7 +82,7 @@ class DesktopApp:
         self.step_buttons = []
         specs = [("١", "افتح موقع المسلسل", "سجّل دخولك، ثم افتح المسلسل المطلوب.", self.open_site),
                  ("٢", "أضف الملحق", "إضافة وربط تلقائيان، دون رمز أو كلمة مرور.", self.add_extension),
-                 ("٣", "ابدأ / واصل التنزيل", "تنزيل الناقص ومحاولة الحلقة حتى تكتمل.", self.start_download)]
+                 ("٣", "ابدأ التنزيل التلقائي", "جمع الروابط وتنزيل الناقص بتبويبات مستقلة.", self.start_automatic)]
         for index, (number, title, description, command) in enumerate(specs):
             cards.columnconfigure(2-index, weight=1, uniform="steps")
             card = tk.Frame(cards, bg="white", padx=12, pady=10, highlightbackground="#DAE3F0", highlightthickness=1)
@@ -130,7 +133,7 @@ class DesktopApp:
                 self.bridge = Bridge(credentials, inbox=data_root() / "Inbox", progress=self.automatic.progress, library=self.library_store)
                 self.bridge.start()
                 self.automatic.start_worker()
-                self.library_engine = LibraryEngine(self.library_store, self.bridge, self.automatic, bundle_root(), data_root(), self.destination, self.events.put)
+                self.library_engine = LibraryEngine(self.library_store, self.bridge, self.automatic, bundle_root(), data_root(), self.destination, self.events.put, session_hub=self.bridge.sessions)
                 self.bridge.snapshot_handler = self.library_engine.on_snapshot
                 self.library_engine.start_worker()
             except OSError as error:
@@ -140,6 +143,25 @@ class DesktopApp:
 
     def _ready(self):
         return not self.checking and bool(self.checks) and all(c["ok"] for c in self.checks)
+
+    def start_automatic(self):
+        if not self._ready() or not self.library_engine:
+            self.status.set('انتظر فحص المتطلبات قبل بدء التنزيل التلقائي.')
+            return
+        if self.installing:
+            self.auto_start_requested=True
+            return
+        if self.automatic.enabled or self.automatic.queue.running or self.preparing:
+            self.status.set('أوقف العملية الحالية أولًا؛ ثم ابدأ التنزيل التلقائي.')
+            return
+        if not self.bridge.status()['connected']:
+            self.auto_start_requested=True
+            self.add_extension()
+            return
+        self.auto_start_requested=False
+        self.library_engine.start_all()
+        self.open_library()
+        self.status.set('بدء السحب والتنزيل تلقائيًا؛ لكل مسلسل تبويب مستقل، والمتعثر يعاد لاحقًا.')
 
     def open_library(self):
         if self.library_window and self.library_window.window.winfo_exists():
@@ -344,8 +366,9 @@ class DesktopApp:
                 break
             kind, *args = event
             if kind == 'library_changed':
-                if self.library_window and self.library_window.window.winfo_exists():
-                    self.library_window.refresh()
+                self.library_dirty=True
+            elif kind == 'library_error':
+                self.status.set(args[0])
             elif kind == 'library_progress':
                 self.progress['value'] = args[1]
                 self.status.set(f'المكتبة — تنزيل الحلقة {args[0]} — {args[1]:.1f}%')
@@ -401,6 +424,10 @@ class DesktopApp:
                 self.logs.append(redact(str(args[-1])))
                 if kind == "error":
                     self.status.set(args[0])
+        if self.library_dirty and time.monotonic()-self.last_library_refresh>=0.8:
+            self.library_dirty=False;self.last_library_refresh=time.monotonic()
+            books=self.library_store.series()
+            self.counts.set(f"المكتبة — محفوظ: {sum(b['done'] for b in books)}   |   جاهز: {sum(b['ready'] for b in books)}   |   المسلسلات: {len(books)}")
         state = self.bridge.status() if self.bridge else {"connected": False, "command_error": ""}
         connected = state["connected"]
         self.connection.set("الملحق جاهز ومتصل تلقائيًا" if connected else "أضف الملحق من الزر ٢ — دون رمز ربط")
@@ -415,6 +442,8 @@ class DesktopApp:
                 if self.library_engine and self.library_engine.resume_collection:
                     self.library_engine.resume_collection = False
                     self.library_engine.start_collection()
+            if self.auto_start_requested and not self.installing:
+                self.start_automatic()
         if connected and self.resume_single and not self.installing and series_from_page(state.get('page_url','')):
             self.resume_single = False
             self.start_download()

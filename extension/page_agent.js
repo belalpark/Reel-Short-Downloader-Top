@@ -4,7 +4,10 @@
   if (globalThis.__dramaScanV5Loaded) return;
   globalThis.__dramaScanV5Loaded = true;
   const C = globalThis.DramaScannerCore;
-  const STORE = 'dramaScannerV5Current';
+  const CHANNEL_KEY='__reelDesktopSession';
+  let CHANNEL='';try{CHANNEL=sessionStorage.getItem(CHANNEL_KEY)||'';}catch(_){}
+  if(!/^[a-f\d]{32}$/.test(CHANNEL))CHANNEL='';
+  let STORE = CHANNEL?'dramaScannerSession:'+CHANNEL:'dramaScannerV5Current';
   const P=globalThis.DramaPlaybackProbe; // Preserved to keep v5 progress and exports
   const TAB_TOKEN_KEY = '__dramaScannerV5OwnedTab';
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -23,12 +26,13 @@
     return (await chrome.storage.local.get(STORE))[STORE] || null;
   }
   async function persist(state,force=false) {
+    if(String(state.channel||'')!==CHANNEL)return false;
     if(cancelled && state.running) return false;
     state.updatedAt = new Date().toISOString();
-    await chrome.storage.local.set(state.collectOnly?{[STORE]:state}:{[STORE]: state, ['dramaScannerSeries:'+state.seriesId]: state});
+    await chrome.storage.local.set(state.collectOnly||CHANNEL?{[STORE]:state}:{[STORE]: state, ['dramaScannerSeries:'+state.seriesId]: state});
     if(state.autoMode && (force || Date.now()-lastDesktopPublish>900 || !state.running)){
       lastDesktopPublish=Date.now();
-      try{await chrome.runtime.sendMessage({type:'DRAMA_DESKTOP_SNAPSHOT',state});}catch(_){}
+      try{await chrome.runtime.sendMessage({type:CHANNEL?'DRAMA_SESSION_SNAPSHOT':'DRAMA_DESKTOP_SNAPSHOT',state});}catch(_){}
     }
     draw(state);
   }
@@ -169,7 +173,7 @@
       row.verifiedHlsUrl=verified.mediaUrl;
       row.hlsMatchedSegments=verified.matchedSegments;
       row.hlsDuration=verified.duration;
-      if(!row.mediaUrl){row.mediaUrl=verified.mediaUrl;row.sourceType='playback_hls';}
+      if(!row.mediaUrl||CHANNEL){row.mediaUrl=verified.mediaUrl;row.sourceType='playback_hls';}
     }
     if(verified.reason==='hls_rate_limited'){state.rateLimited=true;if(!state.patient)pause(state,'الموقع يطلب الانتظار. توقف الفحص؛ حاول لاحقًا.');}
     row.status=row.mediaUrl?'media_found':verified.reason;
@@ -180,6 +184,7 @@
   async function navigateEpisode(state, episode) {
     discover(state);
     const direct = state.rows[String(episode)]?.pageUrl;
+    if(CHANNEL&&direct?.startsWith('https://www.reelshort.com/')&&C.episodeNumber(direct)===episode&&C.seriesIdFromUrl(direct)===state.seriesId){location.assign(direct);return 'navigating';}
     let btn = C.findEpisodeButton(document,episode);
     if (!btn) {
       const group = C.findGroupButton(document,episode);
@@ -201,7 +206,10 @@
       await sleep(100);
       if(cancelled) return 'cancelled';
       if (location.href !== before) {
-        if (C.episodeNumber(location.href) === episode && ownSeries(state.seriesId)) return 'ready';
+        if (C.episodeNumber(location.href) === episode && ownSeries(state.seriesId)){
+          if(CHANNEL){await persist(state,true);location.reload();return 'navigating';}
+          return 'ready';
+        }
         return 'wrong_page';
       }
     }
@@ -392,6 +400,7 @@
     } finally { busy=false; }
   }
   async function start(includePaid,waitMs,options={}) {
+    if(CHANNEL&&options.channel!==CHANNEL)return {ok:false,error:'wrong_session'};
     const previous=await load();
     if(options.desktopCommandId && previous?.desktopCommandId===options.desktopCommandId)return {ok:true};
     if(busy) return {ok:false,error:'انتظر توقف العملية الحالية أولًا.'};
@@ -411,7 +420,7 @@
     const title=cleanTitle(info.title || document.title).replace(/\s*الحلقات الكاملة.*$/,'').trim() || 'Series';
     const owner=crypto.randomUUID();
     setToken(owner);
-    const state={owner,seriesId:id,title,total,paidStart:Number(info.paidStart)||0,includePaid:!!includePaid,
+    const state={owner,channel:CHANNEL,browserUserAgent:typeof navigator==='object'?navigator.userAgent:'',seriesId:id,title,total,paidStart:Number(info.paidStart)||0,includePaid:!!includePaid,
       waitMs:Math.min(25000,Math.max(3000,Number(waitMs)||9000)),recheckOnly:false,
       current:1,running:true,paused:false,finished:false,note:'بدء فحص روابط الحلقات',rows:{},events:[],knownButtons:buttons.length,
       sourceUrl:location.href,startedAt:new Date().toISOString()};
@@ -539,6 +548,15 @@
   }
 
   chrome.runtime.onMessage.addListener((message,sender,respond) => {
+    if(message?.type==='DRAMA_SESSION_BIND'){
+      if(!/^[a-f\d]{32}$/.test(message.channel||'')||C.seriesIdFromUrl(location.href)!==message.seriesId){respond({ok:false});return;}
+      if(CHANNEL!==message.channel){
+        if(busy){respond({ok:false,error:'previous_session_still_running'});return;}
+        CHANNEL=message.channel;STORE='dramaScannerSession:'+CHANNEL;
+        sessionStorage.setItem(CHANNEL_KEY,CHANNEL);setToken('');lastDesktopPublish=0;
+      }
+      respond({ok:true});return;
+    }
     if (message?.type === 'DRAMA_CAPTURE_HLS') {captureCurrent().then(respond).catch(e=>respond({ok:false,error:String(e?.message||e)}));return true;}
     if (message?.type === 'DRAMA_RECHECK_MISSING') {recheckMissing(message.waitMs).then(respond).catch(e=>respond({ok:false,error:String(e?.message||e)}));return true;}
     if (message?.type === 'DRAMA_RESUME') {resume().then(respond).catch(e=>respond({ok:false,error:String(e?.message||e)}));return true;}

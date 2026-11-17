@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 from . import EXTENSION_VERSION, VERSION
 from .paths import read_json, write_json
 from .automatic import Inbox, series_from_page
+from .session_hub import SessionHub
 
 PORT = 18765
 STALE_SECONDS = 75
@@ -51,6 +52,11 @@ class Bridge:
         self.snapshot_handler = None
         self.catalog_job_id = ''
         self.catalog_progress = {}
+        self.sessions = SessionHub(self.inbox, self._session_snapshot)
+
+    def _session_snapshot(self, state):
+        if self.snapshot_handler:
+            self.snapshot_handler(state)
 
     def catalog_status(self):
         with self.lock:
@@ -124,7 +130,7 @@ class Bridge:
                 write_json(self.credentials, {"token": token, "extension_id": match[1]})
                 self.extension_id, self.token = match[1], token
                 self.pair_code = ""
-            elif path in ("/connect", "/heartbeat", "/exchange", "/snapshot", "/ack", "/progress", "/library/catalog"):
+            elif path in ("/connect", "/heartbeat", "/exchange", "/snapshot", "/ack", "/progress", "/library/catalog", '/sessions/poll', '/sessions/heartbeat', '/sessions/snapshot'):
                 if not self.token or not hmac.compare_digest(auth, "Bearer " + self.token):
                     return 401, {"error": "pairing_required"}
                 if path == "/connect" and not self.extension_id:
@@ -137,6 +143,9 @@ class Bridge:
             self.last_seen = time.monotonic()
             self.browser = "Edge" if re.search(r"\bEdg/\d", user_agent) else "Other"
             reply = {"ok": True, "appVersion": VERSION, "browser": self.browser}
+            if path.startswith('/sessions/'):
+                code, session_reply = self.sessions.receive(path, body)
+                return code, {**reply, **session_reply}
             if path == "/pair":
                 reply["token"] = self.token
             if path == "/progress":

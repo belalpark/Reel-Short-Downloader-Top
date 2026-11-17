@@ -73,6 +73,7 @@ class Inbox:
                          "PlaybackStatus": str(item.get("playbackStatus", "not_checked"))[:100],
                          "SourceStatus": str(item.get("status", ""))[:100], "SourceType": str(item.get("sourceType", ""))[:100],
                          "CaptureID": str(item.get("captureId", ""))[:100]})
+            rows[-1]['UserAgent'] = str(state.get('browserUserAgent', ''))[:300]
         self.folder.mkdir(parents=True, exist_ok=True)
         target = self.folder / (sid + ".csv")
         with self.lock:

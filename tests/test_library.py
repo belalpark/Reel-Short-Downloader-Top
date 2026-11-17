@@ -107,6 +107,9 @@ class LibraryTests(unittest.TestCase):
         engine.downloading=True;engine.tick()
         engine.queue.start.assert_not_called()
         self.assertEqual(self.store.episodes(SID)[0]['status'],'needs_refresh')
+        engine.tick();opener.assert_not_called()
+        with self.store.db() as db:
+            db.execute('UPDATE episodes SET next_try=0 WHERE sid=?',(SID,))
         engine.tick();opener.assert_called_once()
 
     def test_explicit_stop_and_application_close_have_distinct_resume_intent(self):

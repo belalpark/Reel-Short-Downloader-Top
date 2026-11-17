@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit, urljoin
 from urllib.request import Request, HTTPRedirectHandler, build_opener
 
 from .catalog import valid_media_url
+from .http_context import safe_user_agent
 
 
 def source_expiry(url):
@@ -64,7 +65,7 @@ class MediaVerifier:
     def __init__(self, allow_loopback=False, timeout=6):
         self.allow_loopback, self.timeout = allow_loopback, timeout
 
-    def check(self, url, page_url=''):
+    def check(self, url, page_url='', user_agent=''):
         now, expiry = time.time(), source_expiry(url)
         def result(ok, reason):
             return SourceCheck(ok, reason, now, expiry)
@@ -81,7 +82,7 @@ class MediaVerifier:
         try:
             referer = page_url if page_url.startswith('https://www.reelshort.com/') else 'https://www.reelshort.com/'
             request = Request(url, headers={'Range': 'bytes=0-65535', 'Referer': referer,
-                'Origin': 'https://www.reelshort.com', 'User-Agent': 'Mozilla/5.0'})
+                'Origin': 'https://www.reelshort.com', 'User-Agent': safe_user_agent(user_agent)})
             with build_opener(Redirects()).open(request, timeout=self.timeout) as response:
                 if response.status not in (200, 206) or not trusted_source(response.url, self.allow_loopback):
                     return result(False, 'source_unavailable')
@@ -102,6 +103,6 @@ class MediaVerifier:
                 return result(True, 'verified_video')
             return result(False, 'not_video')
         except HTTPError as error:
-            return result(False, 'rate_limited' if error.code in (429, 503) else 'source_unavailable')
+            return result(False, {401:'http_unauthorized',403:'http_forbidden',404:'http_not_found',410:'http_not_found',429:'rate_limited',503:'rate_limited'}.get(error.code, 'source_unavailable'))
         except (URLError, OSError, ValueError):
             return result(False, 'connection_failed')
