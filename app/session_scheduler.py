@@ -9,6 +9,7 @@ class SessionScheduler:
         self.job_timeout, self.idle_timeout = job_timeout, idle_timeout
         self.not_before = self.last_open = 0
         self.prepared = set()
+        self.order = {}
 
     def stop(self):
         self.hub.stop()
@@ -42,7 +43,7 @@ class SessionScheduler:
         for slot in range(1,self.slots+1):
             if slot in occupied:
                 continue
-            candidates = sorted(engine.store.series(),key=lambda s:(s['scanned'],s['discovered'],s['id']))
+            candidates = sorted(engine.store.series(),key=lambda s:(self.order.get(s['id'],0),s['discovered'],s['id']))
             chosen = None
             for series in candidates:
                 if series['id'] in active_series or series['next_scan']>now:
@@ -66,6 +67,7 @@ class SessionScheduler:
             rows = {e['episode']:e for e in engine.store.episodes(series['id'])}
             page = rows.get(targets[0],{}).get('page_url') or series['page_url']
             self.hub.assign(slot,series,targets=targets,skipped=engine.store.skip_sources(series['id']),page_url=page)
+            self.order[series['id']]=now
             active_series.add(series['id'])
             engine.note = f'السحب التلقائي: {len(self.hub.snapshot())} تبويبات مستقلة؛ التنزيل يبدأ عند وصول كل رابط صالح.'
             if not engine.bridge.status()['connected'] and now-self.last_open>20:

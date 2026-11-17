@@ -35,7 +35,14 @@ class LibraryEngine:
         self.suspend_browser = False
         self.wakeup = threading.Event()
         self.scheduler = SessionScheduler(self,session_hub) if session_hub else None
-        self.diagnostics = []
+        saved_diagnostics=read_json(data/'download_diagnostics.json',{})
+        self.diagnostics = saved_diagnostics.get('events',[])[-100:] if isinstance(saved_diagnostics,dict) and isinstance(saved_diagnostics.get('events'),list) else []
+
+    def diagnostic(self,item,reason,*,http_status=0,detail='',phase='download'):
+        self.diagnostics.append({'series_id':item['sid'],'episode':item['episode'],'phase':phase,
+            'reason':reason,'http_status':http_status,'detail':redact(detail),'time':time.time()})
+        self.diagnostics=self.diagnostics[-100:]
+        write_json(self.data/'download_diagnostics.json',{'events':self.diagnostics})
 
     @property
     def active(self):
@@ -227,10 +234,12 @@ class LibraryEngine:
                 self.store.update_source(item, 'ready', verified=check.checked_at)
             elif check.reason in ('connection_failed', 'rate_limited'):
                 self.store.update_source(item, 'captured', error=check.reason, next_try=time.time() + (60 if check.reason == 'rate_limited' else 30))
+                self.diagnostic(item,check.reason,phase='probe')
             else:
                 self.store.record_failure(item,check.reason,status='blocked' if check.reason in ('unsupported_source','protected_source') else 'needs_refresh',next_try=time.time()+retry_delay(check.reason,item['attempts']+1))
                 self.note=f"{item['title']} — الحلقة {item['episode']}: {explanation(check.reason)}"
                 self.emit(('library_error',self.note))
+                self.diagnostic(item,check.reason,http_status={'http_forbidden':403,'http_unauthorized':401,'http_not_found':404}.get(check.reason,0),phase='probe')
             self.changed()
         if self.downloading and not self.queue.running:
             item = self.store.next_source('ready')
@@ -267,9 +276,7 @@ class LibraryEngine:
                 reason=result.get('reason') or 'download_failed'
                 self.store.record_failure(item,reason,status='blocked' if reason=='protected_source' else 'captured' if reason in ('network_error','download_stalled','download_timeout','disk_full','write_error') else 'needs_refresh',next_try=time.time()+retry_delay(reason,item['attempts']+1))
                 self.note=f"{item['title']} — الحلقة {item['episode']}: {explanation(reason)}"
-                self.diagnostics.append({'series_id':item['sid'],'episode':item['episode'],'reason':reason,'http_status':result.get('http_status',0),'detail':redact(result.get('detail','')),'time':time.time()})
-                self.diagnostics=self.diagnostics[-100:]
-                write_json(self.data/'download_diagnostics.json',{'events':self.diagnostics})
+                self.diagnostic(item,reason,http_status=result.get('http_status',0),detail=result.get('detail',''))
                 self.emit(('library_error',self.note))
             else:
                 self.store.update_source(item, 'ready', verified=item['verified'])

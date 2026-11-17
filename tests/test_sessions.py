@@ -118,6 +118,22 @@ class SessionTests(unittest.TestCase):
         row=upgraded.episodes(sid(1))[0]
         self.assertEqual((row['status'],row['file'],row['user_agent']),('done','saved.webm',''))
 
+    def test_resume_considers_older_incomplete_series_before_new_catalog_entries(self):
+        self.store.ingest(state(1,total=1))
+        with self.store.db() as db:db.execute('UPDATE series SET scanned=? WHERE id=?',(time.time()-10,sid(1)))
+        self.store.ingest(state(2,total=1))
+        engine=self.engine();engine.scheduler.slots=1;engine.collecting=True;engine.scheduler.tick()
+        self.assertEqual(self.bridge.sessions.snapshot()[0]['seriesId'],sid(1))
+
+    def test_failure_diagnostics_persist_the_reason_without_a_signed_media_url(self):
+        self.store.ingest(state(1,total=1,run='source',captured=[1]))
+        engine=self.engine();item=self.store.episodes(sid(1))[0]
+        engine.diagnostic(item,'http_forbidden',http_status=403,detail='HTTP Error 403 https://v-mps.crazymaplestudios.com/1.mp4?secret=token')
+        saved=json.loads((self.root/'Data/download_diagnostics.json').read_text())
+        self.assertEqual(saved['events'][0]['http_status'],403)
+        self.assertNotIn('secret',json.dumps(saved));self.assertNotIn('https://',json.dumps(saved))
+        reopened=self.engine();self.assertEqual(reopened.diagnostics[0]['reason'],'http_forbidden')
+
 
 class DownloadWatchdogTests(unittest.TestCase):
     def test_silent_process_is_cancelled_and_the_next_series_still_downloads(self):

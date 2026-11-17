@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 from pathlib import Path
 import queue
 import threading
@@ -9,7 +10,7 @@ import tempfile
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from . import VERSION
+from . import VERSION, EXTENSION_VERSION
 from .automatic import AutomaticDownloads, provision_extension, series_from_page
 from .bridge import Bridge
 from .downloader import redact
@@ -340,10 +341,20 @@ class DesktopApp:
     def show_details(self):
         window = tk.Toplevel(self.root)
         window.title("التفاصيل")
+        ttk.Button(window,text='نسخ تقرير المشكلة',command=self.copy_diagnostics).pack(anchor='e',padx=8,pady=6)
         text = tk.Text(window, wrap="word", width=100, height=24, font=("Consolas", 10))
         text.pack(fill="both", expand=True)
         text.insert("end", "\n".join(self.logs[-300:]))
         text.configure(state="disabled")
+
+    def copy_diagnostics(self):
+        books=self.library_store.series()
+        report={'app_version':VERSION,'extension_version':EXTENSION_VERSION,
+            'checks':[{'name':c['name'],'ok':c['ok']} for c in self.checks],
+            'library':[{'id':b['id'],'total':b['total'],'done':b['done'],'ready':b['ready'],'error':b['error']} for b in books],
+            'events':self.library_engine.diagnostics if self.library_engine else []}
+        self.root.clipboard_clear();self.root.clipboard_append(json.dumps(report,ensure_ascii=False,indent=2))
+        self.status.set('نُسخ تقرير المشكلة دون روابط الفيديو أو بيانات الدخول.')
 
     def _update_table(self):
         rows, done, available, remaining = catalog_view(self.entries, self.automatic._is_complete, self.row_status)
