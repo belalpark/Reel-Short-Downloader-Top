@@ -150,29 +150,38 @@ class DesktopApp:
         else:
             self.library_window = LibraryWindow(self)
 
-    def collect_library(self):
+    def _library_ready(self, action):
         if self.installing:
-            self.status.set('انتظر اكتمال إعادة ربط الملحق، ثم اجمع المكتبة.')
-            return
+            self.status.set(f'انتظر اكتمال إعادة ربط الملحق، ثم {action}.')
+            return False
         if not self._ready() or not self.library_engine:
             self.status.set('لم يكتمل التجهيز؛ استخدم إعادة الربط والفحص.')
-            return
+            return False
         if self.automatic.enabled or self.automatic.queue.running or self.preparing:
-            self.status.set('أوقف تنزيل المسلسل الحالي أولًا، ثم اجمع المكتبة.')
+            self.status.set(f'أوقف تنزيل المسلسل الحالي أولًا، ثم {action}.')
+            return False
+        return True
+
+    def inventory_library(self):
+        """Catalog pass only. It never starts link collection or downloads."""
+        if not self._library_ready('ابدأ الجرد'):
             return
         try:
-            self.library_engine.start_collection()
+            self.library_engine.start_inventory()
         except OSError as error:
             self.status.set('تعذر فتح Edge للجرد. ' + redact(str(error)))
             return
         self.open_library()
 
-    def download_library(self):
-        if not self._ready() or not self.library_engine:
-            self.status.set('لم يكتمل التجهيز؛ استخدم إعادة الربط والفحص.')
+    def collect_library(self):
+        """Collect missing links of series already in the library; no catalog pass."""
+        if not self._library_ready('اجمع الروابط'):
             return
-        if self.automatic.enabled or self.automatic.queue.running or self.preparing:
-            self.status.set('أوقف تنزيل المسلسل الحالي أولًا، ثم نزّل المكتبة.')
+        self.library_engine.start_capture()
+        self.open_library()
+
+    def download_library(self):
+        if not self._library_ready('نزّل المكتبة'):
             return
         self.library_engine.start_downloads()
         self.open_library()
@@ -181,9 +190,30 @@ class DesktopApp:
         if not self.library_engine or not self._ready():
             return
         self.library_store.retry_held()
+        released = self.library_store.retry_locked()
         self.library_engine.start_downloads()
+        if released:
+            self.library_engine.start_capture()
         self.library_engine.browser_wakeup.set()
         self.library_engine.wakeup.set()
+
+    def redownload_missing(self):
+        if not self.library_engine or not self._ready():
+            return
+        count = self.library_store.requeue_missing_files()
+        self.status.set(f'أعيدت {count} حلقة مفقودة الملف إلى طابور التنزيل.' if count else 'لا توجد ملفات محفوظة مفقودة.')
+        if count:
+            self.library_engine.start_downloads()
+
+    def export_library(self):
+        try:
+            path = self.library_store.export_index(self.destination / 'library_index.csv')
+        except OSError as error:
+            self.status.set('تعذر حفظ فهرس المكتبة. ' + redact(str(error)))
+            return
+        self.status.set(f'حُفظ فهرس المكتبة في: {path}')
+        if self.library_engine:
+            self.library_engine.note = f'حُفظ فهرس المكتبة (دون روابط الفيديو) في: {path}'
 
     def stop_library(self):
         if self.library_engine:

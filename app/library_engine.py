@@ -66,18 +66,38 @@ class LibraryEngine:
         self.browser_worker.start()
 
     def restore_downloads(self):
+        """Resume only what the user had running. Restarting never starts an inventory."""
         if self.store.setting('resume_downloads', False):
             self.start_downloads()
+        if self.store.setting('resume_collecting', False):
+            self.start_capture()
 
-    def start_collection(self):
-        if self.collecting or self.discovery_id or self.shutdown.is_set():
+    def start_inventory(self):
+        """Catalog pass only: adds series. It does not collect links or download."""
+        if self.discovery_id or self.shutdown.is_set():
             return
         self.inventory.start()
         self.store.retry_unknown_series()
-        self.collecting = True
-        self.note = 'جارٍ جرد المسلسلات وجمع روابط الحلقات الناقصة.'
+        self.note = 'جارٍ جرد المسلسلات الجديدة. الجرد لا يوقف التنزيل ولا يجمع الروابط.'
         self.browser_wakeup.set()
         self.changed()
+
+    def start_capture(self):
+        """Collect missing episode links of series already in the library (no catalog pass)."""
+        if self.shutdown.is_set():
+            return
+        self.collecting = True
+        self.store.save_setting('resume_collecting', True)
+        self.note = 'جارٍ جمع روابط الحلقات الناقصة للمسلسلات المحفوظة. المقفلة في الحساب لا تُعاد تلقائيًا.'
+        self.browser_wakeup.set()
+        self.changed()
+
+    def start_collection(self):
+        """Inventory followed by link collection (kept for the fixtures and scripted runs)."""
+        if self.collecting and self.discovery_id:
+            return
+        self.start_inventory()
+        self.start_capture()
 
     def start_downloads(self):
         with self.queue_lock:
@@ -105,6 +125,7 @@ class LibraryEngine:
         with self.queue_lock:
             self.downloading = False
         self.stop_collection()
+        self.store.save_setting('resume_collecting', False)
         with self.queue_lock:
             self.queue.cancel()
             self.store.save_setting('resume_downloads', False)
@@ -150,7 +171,7 @@ class LibraryEngine:
         if self.discovery_id:
             note = self.inventory.poll()
             if note:
-                self.note = note
+                self.note = note if self.collecting else note.split('.')[0] + '. اضغط «اجمع روابط الناقص» لجمع روابط الحلقات الجديدة.'
                 self.changed()
             if self.discovery_id:
                 return
@@ -220,22 +241,27 @@ class LibraryEngine:
         self._transfer_tick()
 
     def _reconcile_saved(self):
+        """Saved episodes stay saved. A file that is no longer in the save folder is flagged
+        for the user; it is downloaded again only through «أعد تنزيل الملفات المفقودة»."""
         for item in self.store.saved_episodes():
             if self.shutdown.is_set() or not self.downloading:
                 return
             if self.automatic._completed_file(item['sid'], item['episode']):
+                if item['error'] == 'saved_file_missing':
+                    self.store.mark_file_present(item)
                 continue
             path = Path(item['file'])
             try:
                 if path.is_absolute() and path.is_file() and path.stat().st_size >= 128:
                     self.automatic.record_library_completion(item['sid'], item['episode'], path)
+                    self.store.mark_file_present(item)
                     continue
                 # An unplugged/moved destination is not evidence its files were deleted.
                 if not path.is_absolute() or not path.resolve().is_relative_to(self.destination.resolve()) or not self.destination.is_dir():
                     continue
             except OSError:
                 continue
-            self.store.update_source(item, 'captured' if item['media_url'] else 'needs_refresh', error='saved_file_missing')
+            self.store.mark_file_missing(item)
 
     def _already_saved(self, item):
         sid, ep = item['sid'], item['episode']

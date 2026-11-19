@@ -294,6 +294,7 @@
           if(!next){state.current=state.total+1;await persist(state);break;}
           if(next!==ep){state.current=next;await persist(state);continue;}
         }
+        if(state.collectOnly){const reached=state.rows[String(ep)]||{episode:ep};reached.tried=true;state.rows[String(ep)]=reached;}
         if(state.patient&&state.rows[String(ep)]?.downloaded){state.current++;await persist(state);continue;}
         if(state.patient&&state.rows[String(ep)]?.awaitingDownload){
           const result=await waitForDownload(state,ep);
@@ -324,6 +325,14 @@
             statusRow(state,ep,result);
             recordError(state,ep,result);
             if(state.patient){await retryEpisode(state,ep,'تعذر فتح الحلقة');return;}
+            // A paid episode the site does not open for this account. Never click unlock or
+            // purchase controls; report the boundary once instead of trying every paid episode.
+            if(state.collectOnly&&state.paidStart>0&&ep>=state.paidStart&&(result==='manual_open_required'||result==='access_unavailable')){
+              state.lockedFrom=ep;state.current=state.total+1;
+              state.note=`الحلقة ${ep} مدفوعة ولم يفتحها الموقع لهذا الحساب؛ أُوقف فحص بقية الحلقات المدفوعة.`;
+              await persist(state,true);
+              break;
+            }
             if (state.autoMode && result==='manual_open_required')state.navigationBlocked=(state.navigationBlocked||0)+1;
             if ((!state.autoMode && result === 'manual_open_required') || result === 'wrong_page' || (!state.collectOnly&&state.navigationBlocked>=2)) {
               pause(state,state.autoMode?`تعذّر فتح الحلقة ${ep}. أكمل الوصول إليها في الموقع ثم اضغط بدء التنزيل في التطبيق.`:`تعذّر الانتقال إلى الحلقة ${ep} تلقائيًا. افتح الحلقة ${ep} يدويًا في هذا التبويب ثم اختر «استئناف»، أو اختر «تجاوز».`);
@@ -388,7 +397,7 @@
         }
         done.running=false; done.paused=false; done.finished=true;
         const missing=globalThis.DramaRetryPlan?.missing(done)||[];
-        done.note=done.patient?'اكتمل تنزيل جميع الحلقات وفحصها.':done.autoMode ? (missing.length?`انتهت المحاولات؛ ${missing.length} حلقة دون رابط تنزيل متاح.`:'اكتشفت روابط جميع الحلقات؛ يتابع التطبيق التنزيل.'):'انتهى الفحص؛ يجري حفظ CSV في التنزيلات.';
+        done.note=done.lockedFrom?`الحلقات من ${done.lockedFrom} غير متاحة لهذا الحساب الآن؛ لن تُعاد تلقائيًا.`:done.patient?'اكتمل تنزيل جميع الحلقات وفحصها.':done.autoMode ? (missing.length?`انتهت المحاولات؛ ${missing.length} حلقة دون رابط تنزيل متاح.`:'اكتشفت روابط جميع الحلقات؛ يتابع التطبيق التنزيل.'):'انتهى الفحص؛ يجري حفظ CSV في التنزيلات.';
         await persist(done);
         if(done.autoMode)return;
         try {
@@ -437,10 +446,10 @@
       state.retryDelayMs=Number(options.retryDelayMs)||10000;
       state.desktopCommandId=String(options.desktopCommandId||'');
       state.patient=!!options.patient;
-      state.collectOnly=!!options.collectOnly;
+      state.collectOnly=!!options.collectOnly;state.lockedFrom=0;
       state.collectTargets=(options.targetEpisodes||[]).filter(n=>Number.isInteger(n)&&n>0&&n<=total);
       if(previous?.seriesId===id){
-        state.rows=Object.fromEntries(Object.entries(previous.rows||{}).map(([key,row])=>[key,{...row,mediaUrl:'',captureId:'',awaitingDownload:false,downloaded:false,collected:false,attempts:0,verifiedHlsUrl:'',hlsCandidates:[],status:'page_only',playbackStatus:'not_checked'}]));
+        state.rows=Object.fromEntries(Object.entries(previous.rows||{}).map(([key,row])=>[key,{...row,mediaUrl:'',captureId:'',awaitingDownload:false,downloaded:false,collected:false,tried:false,attempts:0,verifiedHlsUrl:'',hlsCandidates:[],status:'page_only',playbackStatus:'not_checked'}]));
         // A new run refreshes signed URLs. Missing-only retries within that run
         // still retain all media already found; the app skips completed files.
       }

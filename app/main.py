@@ -79,7 +79,7 @@ def main():
                     view=app.library_window.window
                     assert len(app.library_window.table.get_children())==60
                     buttons = {w.cget('text'): w for w in descendants(view) if isinstance(w, ttk.Button)}
-                    for label in ('نزّل من المكتبة','جرد وجمع الروابط','إعادة محاولة المعلّق'):
+                    for label in ('نزّل من المكتبة','اجمع روابط الناقص','جرد مسلسلات جديدة','أعد فحص المعلّق والمقفل','أعد تنزيل الملفات المفقودة','صدّر فهرس المكتبة'):
                         button = buttons[label]
                         assert button.winfo_viewable()
                         assert view.winfo_rootx() <= button.winfo_rootx()

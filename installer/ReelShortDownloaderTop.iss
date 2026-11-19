@@ -1,5 +1,5 @@
 #define AppName "Reel Short Downloader Top"
-#define AppVersion "0.5.0"
+#define AppVersion "0.6.0"
 #define AppExe "ReelShortDownloaderTop.exe"
 [Setup]
 AppId={{66DB0E5E-A66A-4DBD-B30B-7C777D9A00B1}

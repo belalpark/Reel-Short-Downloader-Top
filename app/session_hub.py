@@ -33,7 +33,8 @@ class SessionHub:
             job = {'id': secrets.token_hex(16), 'slot': slot, 'seriesId': series['id'], 'title': series['title'],
                    'pageUrl': page, 'targets': sorted(set(targets)), 'skipped': sorted(set(skipped)),
                    'started': time.time(), 'seen': 0, 'updated': 0, 'tabId': None, 'current': 0,
-                   'finished': False, 'paused': False, 'error': '', 'sources': 0}
+                   'finished': False, 'paused': False, 'error': '', 'sources': 0,
+                   'tried': [], 'outcomes': {}, 'paidStart': 0, 'lockedFrom': 0}
             self.jobs[slot] = job
             return dict(job)
 
@@ -74,6 +75,21 @@ class SessionHub:
             except (ValueError, TypeError):
                 job['error'] = 'invalid_episode_index'
                 return 422, {'error': job['error']}
+            outcomes = {}
+            for key, row in (state.get('rows') or {}).items():
+                if not isinstance(row, dict) or not str(key).isdigit():
+                    continue
+                n = int(key)
+                status, playback = str(row.get('status', '')), str(row.get('playbackStatus', ''))
+                reached = row['tried'] is True if 'tried' in row else (playback not in ('', 'not_checked') or status not in ('', 'page_only'))
+                if n in job['targets'] and reached:
+                    outcomes[n] = {'ok': bool(row.get('mediaUrl')) and playback == 'playback_verified',
+                                   'blocked': status in ('manual_open_required', 'access_unavailable'),
+                                   'status': status[:60], 'playback': playback[:60]}
+            paid, locked = state.get('paidStart'), state.get('lockedFrom')
+            job.update(tried=sorted(outcomes), outcomes=outcomes,
+                       paidStart=paid if type(paid) is int and 0 < paid <= 150 else job['paidStart'],
+                       lockedFrom=locked if type(locked) is int and 0 < locked <= 150 else job['lockedFrom'])
             job.update(updated=time.time(), current=state.get('current', 0), total=state.get('total', 0),
                        finished=bool(state.get('finished')), paused=bool(state.get('paused')),
                        sources=sum(bool(r.get('mediaUrl')) and r.get('playbackStatus') == 'playback_verified' for r in state.get('rows', {}).values() if isinstance(r, dict)),
