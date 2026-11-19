@@ -63,9 +63,10 @@
   return true;
  }
  function sanitized(state){
-  const rows={};for(const [n,r] of Object.entries(state.rows||{}))rows[n]={episode:r.episode,pageUrl:r.pageUrl||'',mediaUrl:r.mediaUrl||'',playbackStatus:r.playbackStatus||'',status:r.status||'',sourceType:r.sourceType||'',captureId:r.captureId||'',observedAt:r.checkedAt||''};
+  const rows={};for(const [n,r] of Object.entries(state.rows||{}))rows[n]={episode:r.episode,pageUrl:r.pageUrl||'',mediaUrl:r.mediaUrl||'',playbackStatus:r.playbackStatus||'',status:r.status||'',sourceType:r.sourceType||'',captureId:r.captureId||'',observedAt:r.checkedAt||'',tried:r.tried===true};
   return {channel:state.channel,seriesId:state.seriesId,title:state.title,total:state.total,current:state.current,rows,desktopCommandId:state.desktopCommandId,
    running:!!state.running,paused:!!state.paused,finished:!!state.finished,rateLimited:!!state.rateLimited,seriesPageUrl:state.seriesPageUrl||'',
+   paidStart:Number.isInteger(state.paidStart)&&state.paidStart>0?state.paidStart:0,lockedFrom:Number.isInteger(state.lockedFrom)&&state.lockedFrom>0?state.lockedFrom:0,
    browserUserAgent:String(state.browserUserAgent||'').slice(0,300),note:state.note||'',updatedAt:state.updatedAt||''};
  }
  async function publish(state,sender){

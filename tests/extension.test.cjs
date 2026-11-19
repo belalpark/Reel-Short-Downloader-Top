@@ -264,3 +264,29 @@ test('library collection skips captured episodes but targets only the expired ep
   state.collectTargets=[2];state.rows['2'].collected=false;
   assert.deepEqual(Array.from(R.missing(state)),[2]);
 });
+test('collection stops at the first paid episode the site will not open and reports only reached episodes',async()=>{
+  let stored={},listener,token='',clicks=[];
+  const ctx=load('scanner_core.js','hls_observer.js','playback_probe.js','retry_plan.js');
+  ctx.location={href:`https://www.reelshort.com/episodes/episode-1-test-${ID}`,assign(){throw Error('Unexpected navigation');},reload(){throw Error('Unexpected reload');}};
+  ctx.performance={timeOrigin:Date.now()-1000,getEntriesByType:()=>[]};
+  ctx.sessionStorage={getItem:()=>token,setItem:(_,value)=>{token=value;}};
+  ctx.crypto={randomUUID:()=>'fixture-owner'};
+  const button=n=>({disabled:false,textContent:'',getAttribute:key=>key==='aria-label'?'الحلقة '+n:null,click(){clicks.push(n);}});
+  ctx.document={title:'Test',body:{appendChild(){}},
+    getElementById:id=>id==='__NEXT_DATA__'?{textContent:JSON.stringify({props:{pageProps:{data:{book_id:ID,serial_number:1,chapter_count:5,paid_start:3}}}})}:null,
+    querySelectorAll:selector=>selector==='button[aria-label]'?[1,2,3,4,5].map(button):[],querySelector:()=>null,createElement:()=>({style:{},remove(){}})};
+  ctx.chrome={storage:{local:{get:async()=>structuredClone(stored),set:async value=>{Object.assign(stored,structuredClone(value));}}},runtime:{sendMessage:async()=>({ok:true}),onMessage:{addListener:fn=>{listener=fn;}}}};
+  vm.runInContext(fs.readFileSync(path.join(root,'page_agent.js'),'utf8'),ctx);
+  const send=message=>new Promise(resolve=>listener(message,{},resolve));
+  assert.equal((await send({type:'DRAMA_START',includePaid:true,autoMode:true,maxPasses:1,collectOnly:true,targetEpisodes:[3,4,5],collectedEpisodes:[1,2],desktopCommandId:'run'})).ok,true);
+  await untilPatient(()=>stored.dramaScannerV5Current?.finished);
+  const state=stored.dramaScannerV5Current;
+  assert.equal(state.paidStart,3);
+  assert.equal(state.lockedFrom,3);
+  assert.deepEqual(clicks,[3]);
+  assert.equal(state.rows['3'].tried,true);
+  assert.notEqual(state.rows['4']?.tried,true);
+  assert.notEqual(state.rows['5']?.tried,true);
+  assert.equal(state.rows['3'].mediaUrl,'');
+  assert.match(state.note,/غير متاحة لهذا الحساب/);
+});

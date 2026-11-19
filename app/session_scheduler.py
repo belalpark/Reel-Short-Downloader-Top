@@ -3,23 +3,52 @@ import time
 
 
 class SessionScheduler:
-    def __init__(self, engine, hub, *, slots=3, batch=6, job_timeout=180, idle_timeout=45):
+    # A tab needs a page load, playback proof and HLS matching per episode.
+    PER_TARGET = 45
+    BASE = 90
+    PROGRESS_TIMEOUT = 150
+    BARREN_LIMIT = 6
+
+    def __init__(self, engine, hub, *, slots=3, batch=6, job_timeout=None, idle_timeout=45):
         self.engine, self.hub = engine, hub
         self.slots, self.batch = min(3,max(1,slots)), batch
         self.job_timeout, self.idle_timeout = job_timeout, idle_timeout
         self.not_before = self.last_open = 0
         self.prepared = set()
         self.order = {}
+        self.barren = 0
+        self.pause_level = 0
 
     def stop(self):
         self.hub.stop()
         self.order.clear()
 
+    def timeout_for(self, job):
+        return self.job_timeout or self.BASE + self.PER_TARGET * max(1, len(job['targets']))
+
     def finish(self, job, reason=''):
         self.hub.retire(job['slot'])
         targets = job['targets'] or list(range(1,self.batch+1))
-        self.engine.store.finish_capture(job['seriesId'],targets,reason=reason,next_scan=time.time()+1)
+        result = self.engine.store.finish_capture(job['seriesId'], targets, reason=reason, next_scan=time.time()+1,
+            tried=job.get('tried', targets), outcomes=job.get('outcomes'),
+            paid_start=job.get('paidStart', 0), locked_from=job.get('lockedFrom', 0)) or {}
+        if reason != 'rate_limited':
+            self._record(job, result)
         self.engine.changed()
+
+    def _record(self, job, result):
+        """Stop opening tabs when several runs in a row produce nothing at all."""
+        if job.get('sources') or result.get('locked'):
+            self.barren = self.pause_level = 0
+            return
+        self.barren += 1
+        if self.barren >= self.BARREN_LIMIT:
+            self.barren = 0
+            pause = min(3600, 600 * 2 ** self.pause_level)
+            self.pause_level = min(self.pause_level + 1, 3)
+            self.not_before = max(self.not_before, time.time() + pause)
+            self.engine.note = (f'توقف فتح التبويبات {pause // 60} دقيقة: {self.BARREN_LIMIT} جولات متتالية لم يبدأ فيها تشغيل أي حلقة. '
+                                'تأكد أن Edge مسجّل الدخول ويعرض الحلقات، ثم استخدم «فحص / إعادة الربط». التنزيل مستمر.')
 
     def tick(self):
         engine, now = self.engine, time.time()
@@ -29,30 +58,40 @@ class SessionScheduler:
         for job in self.hub.snapshot():
             if job['error']=='rate_limited':
                 self.not_before = now+60
+                engine.rate_limited()
                 for active in self.hub.snapshot():
                     self.finish(active,'rate_limited')
-                engine.note = 'الموقع طلب مهلة دقيقة؛ تنزيل الروابط الجاهزة مستمر.'
+                engine.note = 'الموقع طلب مهلة. ستُستأنف الطلبات تلقائيًا بعد دقيقة.'
                 return
             if job['finished'] or job['paused'] or job['error']:
                 self.finish(job,job['error'] or ('capture_paused' if job['paused'] else ''))
-            elif now-job['started']>self.job_timeout or now-(job['seen'] or job['started'])>self.idle_timeout:
+            elif (now-job['started']>self.timeout_for(job) or now-(job['seen'] or job['started'])>self.idle_timeout
+                  or now-(job['updated'] or job['started'])>self.PROGRESS_TIMEOUT):
                 self.finish(job,'capture_timeout')
         if not (engine.collecting or engine.downloading) or now<self.not_before:
             return
         jobs = self.hub.snapshot()
         active_series = {j['seriesId'] for j in jobs}
         occupied = {j['slot'] for j in jobs}
+        if len(occupied) >= self.slots:
+            return
+        renewal_only = not engine.collecting
+        if renewal_only and not engine.store.has_renewals():
+            return
+        # Renewals of links that already failed come before new episodes.
+        candidates = sorted(engine.store.series(),key=lambda s:(0 if s['refresh'] else 1,self.order.get(s['id'],0),s['discovered'],s['id']))
         for slot in range(1,self.slots+1):
             if slot in occupied:
                 continue
-            candidates = sorted(engine.store.series(),key=lambda s:(self.order.get(s['id'],0),s['discovered'],s['id']))
             chosen = None
             for series in candidates:
                 if series['id'] in active_series or series['next_scan']>now:
                     continue
+                if renewal_only and not series['refresh']:
+                    continue
                 if series['total'] and not series['capture_due']:
                     continue
-                targets = engine.store.capture_targets(series,self.batch)
+                targets = engine.store.capture_targets(series, self.batch, renewal_only=renewal_only)
                 if targets:
                     chosen = series,targets
                     break
@@ -63,7 +102,7 @@ class SessionScheduler:
                 for ep in engine.automatic.recover_completed(series['id'],lambda:engine.shutdown.is_set() or engine.suspend_browser or not (engine.collecting or engine.downloading)):
                     engine.store.complete(series['id'],ep,engine.automatic.completed[series['id']+'/'+str(ep)])
                 self.prepared.add(series['id'])
-                targets = engine.store.capture_targets(series,self.batch)
+                targets = engine.store.capture_targets(series, self.batch, renewal_only=renewal_only)
                 if not targets:
                     continue
             rows = {e['episode']:e for e in engine.store.episodes(series['id'])}
@@ -75,12 +114,11 @@ class SessionScheduler:
                 return
             self.order[series['id']]=now
             active_series.add(series['id'])
-            engine.note = f'السحب التلقائي: {len(self.hub.snapshot())} تبويبات مستقلة؛ التنزيل يبدأ عند وصول كل رابط صالح.'
+            engine.note = f'جمع الروابط: {len(self.hub.snapshot())} تبويبات مستقلة؛ التنزيل يعمل بشكل منفصل.'
             if not engine.bridge.status()['connected'] and now-self.last_open>20:
                 self.last_open=now
                 engine.opener(page)
             engine.changed()
-        if not self.hub.snapshot():
-            series = engine.store.series()
-            if series and all(s['total'] and s['known_sources']>=s['total'] for s in series):
-                engine.collecting=False
+        if engine.collecting and not self.hub.snapshot() and not engine.store.has_work(download=False):
+            engine.collecting=False
+            engine.store.save_setting('resume_collecting', False)

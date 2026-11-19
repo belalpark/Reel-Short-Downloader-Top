@@ -81,22 +81,30 @@ class MediaVerifier:
                 return super().redirect_request(req, fp, code, msg, headers, newurl)
         try:
             referer = page_url if page_url.startswith('https://www.reelshort.com/') else 'https://www.reelshort.com/'
-            request = Request(url, headers={'Range': 'bytes=0-65535', 'Referer': referer,
+            playlist = urlsplit(url).path.lower().endswith('.m3u8')
+            limit = 1024 * 1024 if playlist else 65536
+            request = Request(url, headers={'Range': f'bytes=0-{limit if playlist else limit-1}', 'Referer': referer,
                 'Origin': 'https://www.reelshort.com', 'User-Agent': safe_user_agent(user_agent)})
             with build_opener(Redirects()).open(request, timeout=self.timeout) as response:
                 if response.status not in (200, 206) or not trusted_source(response.url, self.allow_loopback):
                     return result(False, 'source_unavailable')
-                body = response.read(65536)
-            if urlsplit(url).path.lower().endswith('.m3u8'):
+                body = response.read(limit + 1 if playlist else limit)
+            if playlist:
+                if len(body) > limit:
+                    return result(False, 'playlist_too_large')
                 text = body.decode('utf-8-sig', errors='replace').strip()
-                if not text.startswith('#EXTM3U') or '#EXT-X-ENDLIST' not in text or '#EXTINF:' not in text:
+                if not text.startswith('#EXTM3U'):
                     return result(False, 'not_direct_vod')
-                formats = re.findall(r'KEYFORMAT="([^"]+)"', text)
-                if 'SAMPLE-AES' in text or any(value != 'identity' for value in formats):
-                    return result(False, 'protected_source')
+                for key in re.findall(r'^#EXT-X-(?:SESSION-)?KEY:([^\r\n]+)', text, re.MULTILINE):
+                    method = re.search(r'(?:^|,)METHOD=([^,]+)', key)
+                    fmt = re.search(r'(?:^|,)KEYFORMAT="([^"]+)"', key)
+                    if not method or method[1] not in ('NONE','AES-128') or (fmt and fmt[1] != 'identity'):
+                        return result(False, 'protected_source')
+                if '#EXT-X-ENDLIST' not in text.splitlines() or '#EXTINF:' not in text or '#EXT-X-STREAM-INF:' in text:
+                    return result(False, 'not_direct_vod')
                 references = [line.strip() for line in text.splitlines() if line.strip() and not line.startswith('#')]
                 references += re.findall(r'URI="([^"]+)"', text)
-                if any(not trusted_location(urljoin(url, reference), self.allow_loopback) for reference in references):
+                if any(not trusted_location(urljoin(response.url, reference), self.allow_loopback) for reference in references):
                     return result(False, 'unsupported_source')
                 return result(True, 'verified_hls')
             if body.startswith(bytes.fromhex('1a45dfa3')) or b'ftyp' in body[:32] or b'moov' in body[:32]:

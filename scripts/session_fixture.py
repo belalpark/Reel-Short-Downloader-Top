@@ -89,7 +89,7 @@ with tempfile.TemporaryDirectory() as name:
     try:
         for line in sys.stdin:
             request=json.loads(line)
-            if request['command']=='auto':engine.start_all()
+            if request['command']=='collect':engine.start_collection()
             elif request['command']=='download':engine.start_downloads()
             elif request['command']=='stop':engine.stop()
             elif request['command']=='status':

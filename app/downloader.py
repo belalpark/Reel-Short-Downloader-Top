@@ -32,6 +32,16 @@ def build_command(root: Path, output: Path, item: Episode) -> list[str]:
     return args + ["--", item.media_url]
 
 
+def series_folder(destination: Path, title: str, series_id: str) -> Path:
+    """One folder per series ID. A later title correction must not split a series."""
+    try:
+        existing = sorted((p for p in destination.glob('*_' + series_id) if p.is_dir()),
+                          key=lambda p: (-sum(1 for _ in p.glob('Episode_*')), p.name))
+    except OSError:
+        existing = []
+    return existing[0] if existing else destination / f"{safe_name(title)}_{series_id}"
+
+
 def validate_video(root: Path, path: Path) -> bool:
     if not path.is_file() or path.stat().st_size < 128:
         return False
@@ -135,7 +145,7 @@ class DownloadQueue:
             for item in entries:
                 if self.cancelled.is_set():
                     break
-                folder = destination / f"{safe_name(item.title)}_{item.series_id}"
+                folder = series_folder(destination, item.title, item.series_id)
                 folder.mkdir(parents=True, exist_ok=True)
                 self.emit(("episode", item.episode, "جارٍ التنزيل"))
                 found = None

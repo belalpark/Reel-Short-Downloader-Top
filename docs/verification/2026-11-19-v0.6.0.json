@@ -1,0 +1,227 @@
+{
+ "version": "0.6.0",
+ "extension": "5.7.0",
+ "source_branch": "claude/library-engines-060",
+ "source_commit": "eb473f3",
+ "ci_run": 44536994671,
+ "ci_conclusion": "success",
+ "artifacts": {
+  "ReelShortDownloaderTop-Setup-0.6.0-win-x64.exe": {
+   "bytes": 92571683,
+   "sha256": "bb1b77f997f16b7d28f97843bdbdfe1effc7b597a445008c61729dcf2ec60b6e"
+  },
+  "ReelShortDownloaderTop-Portable-0.6.0-win-x64.zip": {
+   "bytes": 122672838,
+   "sha256": "094a79c03f9cfdd9c9cd61a6ad09747a39308335f3587d67339408e38aa58764"
+  }
+ },
+ "windows": {
+  "runtime": [
+   {
+    "name": "Windows 10/11 x64",
+    "ok": true
+   },
+   {
+    "name": "Microsoft Edge",
+    "ok": true
+   },
+   {
+    "name": "Package integrity",
+    "ok": true
+   },
+   {
+    "name": "yt-dlp",
+    "ok": true
+   },
+   {
+    "name": "ffmpeg",
+    "ok": true
+   },
+   {
+    "name": "ffprobe",
+    "ok": true
+   },
+   {
+    "name": "User data",
+    "ok": true
+   },
+   {
+    "name": "Downloads",
+    "ok": true
+   }
+  ],
+  "gui": {
+   "gui_created": true,
+   "steps": [
+    1,
+    2,
+    3
+   ],
+   "manual_csv_required": false,
+   "pairing_code_required": false,
+   "edge_automation_imported": true,
+   "runtime_checks_completed": true,
+   "width": 984,
+   "height": 658
+  },
+  "library_download": {
+   "synthetic_series": 60,
+   "episodes_per_series": 1,
+   "actual_bundled_ytdlp": true,
+   "actual_bundled_ffprobe": true,
+   "actual_source_checks": 60,
+   "closed_after_completed": 30,
+   "restart_restored_download_intent": true,
+   "resume_only_remaining": 30,
+   "completed_files_requested_again": false,
+   "all_60_file_hashes_match": true,
+   "browser_required": false,
+   "mixed_library_no_catalog_commands": true,
+   "mixed_library_only_new_file_requested": true,
+   "mixed_library_returns_idle_with_missing": true,
+   "real_account_tested": false
+  },
+  "installer": {
+   "activationRequiredDuringInstall": false,
+   "installExitCode": 0,
+   "uninstallExitCode": 0,
+   "runtimeExitCode": 0,
+   "missingToolExitCode": 12
+  }
+ },
+ "browser": {
+  "sessions-browser": {
+   "series": 3,
+   "episodesEach": 3,
+   "independentInventoryAndDownload": true,
+   "maximumConcurrentSeries": 3,
+   "uniqueOwnedTabs": 3,
+   "sessionIdsBoundToCorrectSeries": true,
+   "managedTabsMutedForAutoplay": true,
+   "freshDocumentAfterSpaSelection": true,
+   "verifiedPlaybackPreferredToStaleHtml": true,
+   "failedEpisodeDeferredWithoutRelink": true,
+   "otherSeriesProgressedBeforeRetry": true,
+   "successfulFilesDownloadedOnce": 9,
+   "totalAttempts": 10,
+   "completedResumeMadeNoRequests": true,
+   "realDownloadTool": false,
+   "realAccountTested": false
+  },
+  "library-browser": {
+   "syntheticSeries": 60,
+   "seededSourcesSkipped": 58,
+   "newSeriesCollected": 2,
+   "duplicateCatalogCardsDeduplicated": true,
+   "renderedShelfCrawled": true,
+   "landingPageUsesObservedEpisodeLink": true,
+   "offlineQueueItems": 60,
+   "noBrowserReopenedForValidLinks": true,
+   "oneFailedSourceRenewed": true,
+   "other59NotReopened": true,
+   "queuedItems": 61,
+   "realDownloadTool": false,
+   "realAccountTested": false
+  },
+  "hls-browser": {
+   "browserVersion": "142.0.7444.175",
+   "hlsJsVersion": "1.6.13",
+   "initialHtmlSources": 8,
+   "hlsOnlySources": 4,
+   "totalSources": 12,
+   "queuedEpisodes": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ],
+   "blobPlayback": true,
+   "staleSpaMetadata": true,
+   "normalTimelineBufferFull": true,
+   "lateHlsAbsentFromTimeline": true,
+   "unverifiedPrefetchDidNotClaimNextEpisode": true,
+   "verifiedDurationAndSegments": true,
+   "passes": 1,
+   "realAccountDownloadTested": false
+  },
+  "patient-browser": {
+   "completedEpisodesSkipped": 46,
+   "navigationFailuresBeforeSuccess": 2,
+   "failedDownloadRetriedOnSameEpisode": true,
+   "freshCaptureOnSameUrl": true,
+   "queuedEpisodes": [
+    47,
+    47,
+    48
+   ],
+   "stopPreventsScheduledRefresh": true,
+   "backendRestartRetainsCompletedFiles": true,
+   "resumeOnlyEpisode48": true,
+   "finalCompleted": 48,
+   "realDownloadTool": false,
+   "realAccountTested": false
+  }
+ },
+ "local": {
+  "python_tests": 116,
+  "js_tests": 30,
+  "playwright_suites": 5,
+  "gui_smoke_xvfb": true
+ },
+ "replay_real_library_copy": {
+  "series": 388,
+  "episodes": 19593,
+  "site_model": "inferred from the library: episodes after the last captured one are not open for the account",
+  "collect": {
+   "0.5.0": {
+    "tab_sessions": 7752,
+    "locked_attempts": 40779,
+    "captured": 3179,
+    "downloads": 5939,
+    "useful_work_hours": 37.2,
+    "idle_after_hours": 64.7
+   },
+   "0.6.0": {
+    "tab_sessions": 908,
+    "locked_attempts": 359,
+    "captured": 3179,
+    "downloads": 5939,
+    "useful_work_hours": 14.1,
+    "idle_after_hours": 14.1
+   }
+  },
+  "download_only": {
+   "catalog_passes": {
+    "0.5.0": 0,
+    "0.6.0": 0
+   },
+   "downloads": {
+    "0.5.0": 2762,
+    "0.6.0": 2762
+   },
+   "redownloads_of_saved": {
+    "0.5.0": 0,
+    "0.6.0": 0
+   }
+  },
+  "upgrade": {
+   "statuses_unchanged": true,
+   "saved_rows_and_files_unchanged": 166,
+   "titles_repaired": 13
+  }
+ },
+ "not_verified": [
+  "live ReelShort pages and paid_start values",
+  "the user's account entitlement",
+  "Windows 10/11 desktop and DPI acceptance",
+  "multi-hour runs on the user's PC"
+ ]
+}

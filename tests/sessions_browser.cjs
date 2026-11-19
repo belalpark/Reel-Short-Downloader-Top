@@ -47,7 +47,8 @@ function html(url){
   });
   const send=v=>child.stdin.write(JSON.stringify(v)+'\n');
   async function status(){if(openError)throw openError;lastStatus=null;send({command:'status'});await until(()=>lastStatus,'backend status',5000);return lastStatus;}
-  send({command:'auto'});
+  send({command:'collect'});
+  send({command:'download'});
   await until(async()=>{const s=await status();return s.jobs.length===3;},'three parallel series leases');
   await until(async()=>{const s=await status();return s.series.every(b=>b.done===3)&&!s.downloading;},'automatic failure deferral and capture/download triggers without relinking');
   assert.equal(queued.length,10,'9 distinct files and one failed attempt');
@@ -72,7 +73,7 @@ function html(url){
   for(const tab of context.pages())if(tab.url().startsWith('https://www.reelshort.com/'))await tab.close();
   send({command:'download'});await until(async()=>!(await status()).downloading,'completed-only resume without reopening Edge');
   assert.equal(queued.length,before);assert.equal(opens.length,beforeOpen);
-  fs.writeFileSync(path.join(OUT,'sessions-browser.json'),JSON.stringify({series:3,episodesEach:3,oneStartCommand:true,maximumConcurrentSeries:3,uniqueOwnedTabs:3,sessionIdsBoundToCorrectSeries:true,managedTabsMutedForAutoplay:true,freshDocumentAfterSpaSelection:true,verifiedPlaybackPreferredToStaleHtml:true,failedEpisodeDeferredWithoutRelink:true,otherSeriesProgressedBeforeRetry:true,successfulFilesDownloadedOnce:9,totalAttempts:10,completedResumeMadeNoRequests:true,realDownloadTool:false,realAccountTested:false},null,2));
+  fs.writeFileSync(path.join(OUT,'sessions-browser.json'),JSON.stringify({series:3,episodesEach:3,independentInventoryAndDownload:true,maximumConcurrentSeries:3,uniqueOwnedTabs:3,sessionIdsBoundToCorrectSeries:true,managedTabsMutedForAutoplay:true,freshDocumentAfterSpaSelection:true,verifiedPlaybackPreferredToStaleHtml:true,failedEpisodeDeferredWithoutRelink:true,otherSeriesProgressedBeforeRetry:true,successfulFilesDownloadedOnce:9,totalAttempts:10,completedResumeMadeNoRequests:true,realDownloadTool:false,realAccountTested:false},null,2));
   console.log('Sessions passed: 3 isolated tabs, capture/download triggers, defer HTTP 403, progress other series, automatic fresh retry.');
  }catch(error){if(worker)try{fs.writeFileSync(path.join(OUT,'sessions-failed-state.json'),JSON.stringify(await worker.evaluate(async()=>({local:await chrome.storage.local.get(null),session:await chrome.storage.session.get(null)})),null,2));}catch(_){}throw error;}
  finally{if(context)await context.close();if(child){child.stdin.end();child.kill();await Promise.race([once(child,'exit'),delay(3000)]);}fs.rmSync(profile,{recursive:true,force:true});}

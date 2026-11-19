@@ -128,7 +128,7 @@ class LibraryTests(unittest.TestCase):
         engine.suspend_browser=False;engine.tick();opener.assert_called_once()
 
     def test_catalog_timeout_counts_idle_time_not_total_duration_of_active_shelves(self):
-        engine,_,_=self.engine();engine.discovery_id='catalog';engine.discovery_started=time.time()-400
+        engine,_,_=self.engine();engine.inventory.job_id='catalog';engine.inventory.started=time.time()-400
         engine.bridge.catalog_status.return_value={'id':'catalog','done':False,'updated':time.time()-10}
         engine._capture_tick();self.assertEqual(engine.discovery_id,'catalog')
         engine.bridge.command.assert_not_called()
