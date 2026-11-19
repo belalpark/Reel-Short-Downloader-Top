@@ -117,6 +117,27 @@ def main():
             engine.tick()
             assert engine.queue.thread is None and not engine.downloading
             assert len(requests) == before and not opened
+
+            # Production incident: a saved catalog can mix ready, missing and unindexed rows.
+            sid = f'{61:024x}'
+            page = f'https://www.reelshort.com/ar/episodes/episode-1-fixture-{sid}'
+            store.ingest({'seriesId':sid, 'title':'Mixed catalog', 'total':2, 'rows':{'1':{
+                'pageUrl':page, 'mediaUrl':'https://v-mps.crazymaplestudios.com/61.webm',
+                'sourceType':'html','playbackStatus':'playback_verified','captureId':'mixed'}}})
+            with store.db() as db:
+                db.execute('UPDATE episodes SET media_url=? WHERE sid=? AND episode=1',
+                           (f'http://127.0.0.1:{server.server_port}/61.webm',sid))
+            unknown = f'{62:024x}'
+            store.add_series([{'id':unknown,'title':'Unindexed','pageUrl':f'https://www.reelshort.com/ar/movie/unindexed-{unknown}'}])
+            engine.start_downloads()
+            run_until(61)
+            engine.tick()
+            assert not engine.downloading and not engine.collecting and not opened
+            engine.bridge.command.assert_not_called()
+            assert set(requests[before:]) == {'/61.webm'}
+            mixed = store.episodes(sid)
+            assert [row['status'] for row in mixed] == ['done','missing']
+            assert hashlib.sha256(Path(mixed[0]['file']).read_bytes()).hexdigest() == expected_hash
             engine.close()
             auto.close()
             write_json(args.report, {'synthetic_series': 60, 'episodes_per_series': 1,
@@ -124,7 +145,9 @@ def main():
                 'actual_source_checks': 60, 'closed_after_completed': 30,
                 'restart_restored_download_intent': True, 'resume_only_remaining': 30,
                 'completed_files_requested_again': False, 'all_60_file_hashes_match': True,
-                'browser_required': False, 'real_account_tested': False})
+                'browser_required': False, 'mixed_library_no_catalog_commands':True,
+                'mixed_library_only_new_file_requested':True,'mixed_library_returns_idle_with_missing':True,
+                'real_account_tested': False})
     finally:
         server.shutdown()
         server.server_close()

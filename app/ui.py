@@ -38,7 +38,6 @@ class DesktopApp:
         self.bridge = None
         self.library_engine = self.library_window = None
         self.library_restore_checked = self.resume_single = False
-        self.auto_start_requested = False
         self.library_dirty = False
         self.last_library_refresh = 0
         self.library_temporary = tempfile.TemporaryDirectory() if smoke else None
@@ -83,7 +82,7 @@ class DesktopApp:
         self.step_buttons = []
         specs = [("١", "افتح موقع المسلسل", "سجّل دخولك، ثم افتح المسلسل المطلوب.", self.open_site),
                  ("٢", "أضف الملحق", "إضافة وربط تلقائيان، دون رمز أو كلمة مرور.", self.add_extension),
-                 ("٣", "ابدأ التنزيل التلقائي", "جمع الروابط وتنزيل الناقص بتبويبات مستقلة.", self.start_automatic)]
+                 ("٣", "نزّل من المكتبة", "تنزيل الحلقات ذات الروابط المحفوظة ومواصلة الناقص.", self.download_library)]
         for index, (number, title, description, command) in enumerate(specs):
             cards.columnconfigure(2-index, weight=1, uniform="steps")
             card = tk.Frame(cards, bg="white", padx=12, pady=10, highlightbackground="#DAE3F0", highlightthickness=1)
@@ -145,25 +144,6 @@ class DesktopApp:
     def _ready(self):
         return not self.checking and bool(self.checks) and all(c["ok"] for c in self.checks)
 
-    def start_automatic(self):
-        if not self._ready() or not self.library_engine:
-            self.status.set('انتظر فحص المتطلبات قبل بدء التنزيل التلقائي.')
-            return
-        if self.installing:
-            self.auto_start_requested=True
-            return
-        if self.automatic.enabled or self.automatic.queue.running or self.preparing:
-            self.status.set('أوقف العملية الحالية أولًا؛ ثم ابدأ التنزيل التلقائي.')
-            return
-        if not self.bridge.status()['connected']:
-            self.auto_start_requested=True
-            self.add_extension()
-            return
-        self.auto_start_requested=False
-        self.library_engine.start_all()
-        self.open_library()
-        self.status.set('بدء السحب والتنزيل تلقائيًا؛ لكل مسلسل تبويب مستقل، والمتعثر يعاد لاحقًا.')
-
     def open_library(self):
         if self.library_window and self.library_window.window.winfo_exists():
             self.library_window.window.lift()
@@ -180,7 +160,11 @@ class DesktopApp:
         if self.automatic.enabled or self.automatic.queue.running or self.preparing:
             self.status.set('أوقف تنزيل المسلسل الحالي أولًا، ثم اجمع المكتبة.')
             return
-        self.library_engine.start_collection()
+        try:
+            self.library_engine.start_collection()
+        except OSError as error:
+            self.status.set('تعذر فتح Edge للجرد. ' + redact(str(error)))
+            return
         self.open_library()
 
     def download_library(self):
@@ -192,6 +176,14 @@ class DesktopApp:
             return
         self.library_engine.start_downloads()
         self.open_library()
+
+    def retry_library(self):
+        if not self.library_engine or not self._ready():
+            return
+        self.library_store.retry_held()
+        self.library_engine.start_downloads()
+        self.library_engine.browser_wakeup.set()
+        self.library_engine.wakeup.set()
 
     def stop_library(self):
         if self.library_engine:
@@ -452,9 +444,8 @@ class DesktopApp:
                 self.root.focus_force()
                 if self.library_engine and self.library_engine.resume_collection:
                     self.library_engine.resume_collection = False
-                    self.library_engine.start_collection()
-            if self.auto_start_requested and not self.installing:
-                self.start_automatic()
+                    self.library_engine.collecting = True
+                    self.library_engine.browser_wakeup.set()
         if connected and self.resume_single and not self.installing and series_from_page(state.get('page_url','')):
             self.resume_single = False
             self.start_download()
@@ -474,7 +465,7 @@ class DesktopApp:
                     done = self._update_table()
                     self.status.set(f"انتهت المحاولة: تم تنزيل {done} من {len(self.entries)}. " + ("يمكنك إعادة المحاولة لاحقًا." if done < len(self.entries) else "جميع المقاطع محفوظة."))
         self.step_buttons[1].configure(state="disabled" if self.installing or not self._ready() else "normal")
-        self.step_buttons[2].configure(state="disabled" if active or state.get("pending_kind") == "stop" or not self._ready() else "normal")
+        self.step_buttons[2].configure(state="disabled" if self.preparing or self.automatic.enabled or bool(self.library_engine and self.library_engine.downloading) or not self._ready() else "normal")
         self.stop_button.configure(state="normal" if active else "disabled")
         self.root.after(250, self._poll)
 

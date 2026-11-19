@@ -1,7 +1,12 @@
 """Stable, non-secret download diagnostics and bounded retry decisions."""
 import re
 
+MAX_ATTEMPTS = 3
+
 LABELS = {
+    'connection_failed': 'تعذر الاتصال بمصدر الفيديو',
+    'saved_file_missing': 'تعذر العثور على الملف في مجلد الحفظ',
+    'playlist_too_large': 'قائمة الفيديو تتجاوز حجم الفحص المدعوم',
     'http_forbidden': 'الخادم رفض طلب التنزيل؛ جارٍ طلب مصدر جديد من صفحة الحلقة',
     'http_unauthorized': 'المصدر يحتاج جلسة دخول صالحة في الموقع',
     'http_not_found': 'رابط الفيديو لم يعد متاحًا؛ سيُجدَّد من صفحة الحلقة',

@@ -7,7 +7,8 @@ import sqlite3
 import time
 from urllib.parse import unquote, urlsplit
 
-from .catalog import Episode, load_catalog
+from .catalog import load_catalog
+from .failures import MAX_ATTEMPTS
 from .media_check import source_expiry, trusted_source
 
 SID = re.compile(r'^[a-f0-9]{24}$')
@@ -55,6 +56,36 @@ class LibraryStore:
             columns = {r[1] for r in db.execute('PRAGMA table_info(episodes)')}
             if 'user_agent' not in columns:
                 db.execute("ALTER TABLE episodes ADD COLUMN user_agent TEXT NOT NULL DEFAULT ''")
+
+            if 'retry_status' not in columns:
+                db.execute("ALTER TABLE episodes ADD COLUMN retry_status TEXT NOT NULL DEFAULT ''")
+            if 'scan_failures' not in {r[1] for r in db.execute('PRAGMA table_info(series)')}:
+                db.execute("ALTER TABLE series ADD COLUMN scan_failures INTEGER NOT NULL DEFAULT 0")
+
+    def count_series(self):
+        with self.db() as db:
+            return db.execute('SELECT COUNT(*) FROM series').fetchone()[0]
+
+    def has_renewals(self):
+        with self.db() as db:
+            return bool(db.execute("""SELECT 1 FROM episodes e JOIN series s ON s.id=e.sid
+                WHERE e.status='needs_refresh' AND e.next_try<=? AND e.episode<=s.total LIMIT 1""",
+                (time.time(),)).fetchone())
+
+    def expire_due_sources(self):
+        with self.db() as db:
+            db.execute("""UPDATE episodes SET status='needs_refresh',error='source_expired',verified=0
+                WHERE expires>0 AND expires<=? AND status IN ('ready','captured')""", (time.time()+30,))
+
+    def has_work(self, *, download):
+        with self.db() as db:
+            if download:
+                return bool(db.execute("""SELECT 1 FROM episodes e JOIN series s ON s.id=e.sid
+                    WHERE e.status IN ('ready','captured','downloading','needs_refresh')
+                    AND e.episode<=s.total LIMIT 1""").fetchone())
+            return bool(db.execute("""SELECT 1 FROM series WHERE total=0 AND scan_failures<? UNION ALL
+                SELECT 1 FROM episodes e JOIN series s ON s.id=e.sid WHERE e.episode<=s.total AND
+                e.status IN ('missing','needs_refresh','captured') LIMIT 1""",(MAX_ATTEMPTS,)).fetchone())
 
     def recover_interrupted(self):
         with self.db() as db:
@@ -113,7 +144,10 @@ class LibraryStore:
             self.add_series([{'id': sid, 'title': state.get('title', 'Series'), 'pageUrl': first}])
         now = time.time()
         with self.db() as db:
-            db.execute('UPDATE series SET total=?, title=? WHERE id=?', (total, str(state.get('title', 'Series'))[:250], sid))
+            title = str(state.get('title') or '').strip()[:250]
+            db.execute("""UPDATE series SET total=?,scan_failures=0,
+                title=CASE WHEN ? IN ('','Series','عنوان غير معلن') THEN title ELSE ? END WHERE id=?""",
+                (total,title,title,sid))
             landing = series_page(str(state.get('seriesPageUrl', '')), sid)
             if landing:
                 db.execute('UPDATE series SET page_url=? WHERE id=?', (landing, sid))
@@ -127,15 +161,24 @@ class LibraryStore:
                 db.execute('INSERT OR IGNORE INTO episodes(sid,episode,page_url) VALUES(?,?,?)', (sid, n, page))
                 if page:
                     db.execute('UPDATE episodes SET page_url=? WHERE sid=? AND episode=?', (page, sid, n))
+                if row.get('playbackStatus') == 'hls_drm_protected' or row.get('status') == 'hls_drm_protected':
+                    db.execute("""UPDATE episodes SET status='blocked',error='protected_source',media_url='',
+                        generation='',verified=0,next_try=0,retry_status=''
+                        WHERE sid=? AND episode=? AND status NOT IN ('done','downloading')""", (sid,n))
+                    continue
                 media = str(row.get('mediaUrl', ''))
                 generation = str(row.get('captureId') or row.get('observedAt') or '')[:100]
                 if not media or row.get('playbackStatus') != 'playback_verified' or not trusted_source(media) or not generation:
                     continue
-                db.execute('''UPDATE episodes SET media_url=?,source_type=?,generation=?,user_agent=?,
-                    status=CASE WHEN status='done' THEN status ELSE 'captured' END,
-                    observed=?,verified=0,expires=?,error='',next_try=CASE WHEN media_url<>? THEN 0 ELSE next_try END
-                    WHERE sid=? AND episode=? AND (generation<>? OR media_url<>?)''',
-                    (media, str(row.get('sourceType', ''))[:60], generation, str(state.get('browserUserAgent', ''))[:300], now, source_expiry(media), media, sid, n, generation, media))
+                # A new capture ID alone must not restart a verified or in-flight transfer.
+                db.execute("""UPDATE episodes SET media_url=?,source_type=?,generation=?,user_agent=?,
+                    status='captured',observed=?,verified=0,expires=?,error='',retry_status='',
+                    next_try=CASE WHEN media_url<>? THEN 0 ELSE next_try END
+                    WHERE sid=? AND episode=? AND status NOT IN ('done','downloading')
+                    AND (media_url<>? OR (status='needs_refresh' AND generation<>?))""",
+                    (media, str(row.get('sourceType', ''))[:60], generation,
+                     str(state.get('browserUserAgent', ''))[:300], now, source_expiry(media),
+                     media, sid, n, media, generation))
 
     def series(self):
         with self.db() as db:
@@ -143,16 +186,19 @@ class LibraryStore:
               COALESCE(SUM(e.status='done'),0) done,
               COALESCE(SUM(e.status IN ('ready','downloading') AND (e.expires=0 OR e.expires>?)),0) ready,
               COALESCE(SUM(e.status='captured'),0) checking,
-              COALESCE(SUM(e.status='needs_refresh'),0) refresh,
-              COALESCE(MIN(CASE WHEN e.status NOT IN ('done','blocked') AND e.next_try>? THEN e.next_try END),0) retry_at,
+              COALESCE(SUM(e.status='needs_refresh' OR (e.status IN ('captured','ready') AND e.expires>0 AND e.expires<=?)),0) refresh,
+              COALESCE(SUM(e.status='missing'),0) missing,
+              COALESCE(SUM(e.status='held'),0) held,
+              COALESCE(SUM(e.status='blocked'),0) blocked,
+              COALESCE(MIN(CASE WHEN e.status NOT IN ('done','blocked','held') AND e.next_try>? THEN e.next_try END),0) retry_at,
               COALESCE(SUM(e.status='done' OR (e.media_url<>'' AND e.status IN ('captured','ready','downloading') AND (e.expires=0 OR e.expires>?))),0) known_sources,
-              COALESCE(SUM(e.status NOT IN ('done','blocked','downloading') AND e.next_try<=? AND (e.media_url='' OR e.status='needs_refresh' OR (e.expires<>0 AND e.expires<=?))),0) capture_due
+              COALESCE(SUM(e.status NOT IN ('done','blocked','held','downloading') AND e.next_try<=? AND (e.media_url='' OR e.status='needs_refresh' OR (e.expires<>0 AND e.expires<=?))),0) capture_due
               FROM series s LEFT JOIN episodes e ON e.sid=s.id AND e.episode<=s.total
-              GROUP BY s.id ORDER BY s.discovered,s.id''', (time.time()+30,time.time(),time.time()+30,time.time(),time.time()+30))]
+              GROUP BY s.id ORDER BY s.discovered,s.id''', (time.time()+30,time.time()+30,time.time(),time.time()+30,time.time(),time.time()+30))]
 
     def episodes(self, sid):
         with self.db() as db:
-            return [dict(r) for r in db.execute('SELECT * FROM episodes WHERE sid=? ORDER BY episode', (sid,))]
+            return [dict(r) for r in db.execute('SELECT e.* FROM episodes e JOIN series s ON s.id=e.sid WHERE e.sid=? AND e.episode<=s.total ORDER BY e.episode', (sid,))]
 
     def skip_sources(self, sid):
         with self.db() as db:
@@ -160,36 +206,51 @@ class LibraryStore:
                 WHERE e.sid=? AND e.episode<=s.total AND (e.status='done' OR
                   (e.media_url<>'' AND e.status IN ('captured','ready','downloading') AND (e.expires=0 OR e.expires>?)))''', (sid, time.time()+30))]
 
-    def capture_targets(self, series, limit=6):
+    def capture_targets(self, series, limit=6, *, renewal_only=False):
         if not series['total']:
-            return list(range(1, limit+1))
-        skipped = set(self.skip_sources(series['id']))
-        return [e['episode'] for e in self.episodes(series['id']) if e['episode']<=series['total'] and
-                e['episode'] not in skipped and e['status']!='blocked' and e['next_try']<=time.time()][:limit]
+            if renewal_only or series['scan_failures'] >= MAX_ATTEMPTS:
+                return []
+            return list(range(1, limit + 1))
+        with self.db() as db:
+            return [r[0] for r in db.execute("""SELECT episode FROM episodes WHERE sid=? AND episode<=?
+                AND next_try<=? AND (status='needs_refresh' OR (status='missing' AND ?=0)
+                OR (status IN ('captured','ready') AND expires>0 AND expires<=?))
+                ORDER BY CASE WHEN status='missing' THEN 1 ELSE 0 END,episode LIMIT ?""",
+                (series['id'], series['total'], time.time(), renewal_only, time.time()+30, limit))]
 
     def record_failure(self, item, reason, *, status='needs_refresh', next_try=0):
         with self.db() as db:
-            db.execute("UPDATE episodes SET status=?,error=?,attempts=attempts+1,next_try=? WHERE sid=? AND episode=? AND generation=? AND status<>'done'",
-                       (status,reason[:100],next_try,item['sid'],item['episode'],item['generation']))
+            return db.execute("""UPDATE episodes SET
+                status=CASE WHEN ?!='blocked' AND attempts+1>=? THEN 'held' ELSE ? END,
+                retry_status=?,error=?,attempts=attempts+1,next_try=?
+                WHERE sid=? AND episode=? AND generation=? AND status=? AND status NOT IN ('done','held','blocked')""",
+                (status, MAX_ATTEMPTS, status, status, reason[:100], next_try,
+                 item['sid'], item['episode'], item['generation'], item['status'])).rowcount
 
     def finish_capture(self, sid, targets, *, reason='', next_scan=0):
-        skipped = set(self.skip_sources(sid))
+        now = time.time()
         with self.db() as db:
             for n in targets:
-                if n in skipped:
+                row = db.execute('SELECT status,attempts,next_try FROM episodes WHERE sid=? AND episode=?',(sid,n)).fetchone()
+                if not row or row['status'] not in ('missing','needs_refresh') or row['next_try']>now:
                     continue
-                row = db.execute('SELECT * FROM episodes WHERE sid=? AND episode=?',(sid,n)).fetchone()
-                if row and row['status'] not in ('done','blocked'):
-                    delay = 60 if reason=='rate_limited' else min(300,30*2**min(4,row['attempts']))
-                    db.execute("UPDATE episodes SET attempts=attempts+1,error=?,next_try=MAX(next_try,?) WHERE sid=? AND episode=?",
-                               (reason or 'source_not_captured',time.time()+delay,sid,n))
-            db.execute('UPDATE series SET scanned=?,next_scan=?,error=? WHERE id=?',
-                       (time.time(),next_scan,reason[:100],sid))
+                delay = max(60 if reason=='rate_limited' else 0, min(300,30*2**min(4,row['attempts'])))
+                db.execute("""UPDATE episodes SET attempts=attempts+1,error=?,next_try=?,retry_status=status,
+                    status=CASE WHEN attempts+1>=? THEN 'held' ELSE status END WHERE sid=? AND episode=?""",
+                    (reason or 'source_not_captured', now+delay, MAX_ATTEMPTS, sid,n))
+            db.execute("""UPDATE series SET scanned=?,next_scan=CASE WHEN total=0 THEN MAX(?, ?+60*(scan_failures+1))
+                ELSE ? END,scan_failures=CASE WHEN total=0 THEN scan_failures+1 ELSE 0 END,error=? WHERE id=?""",
+                (now,next_scan,now,next_scan,reason[:100],sid))
 
-    def release_deferred(self):
+    def retry_held(self):
         with self.db() as db:
-            db.execute("UPDATE episodes SET next_try=0 WHERE status NOT IN ('done','blocked','downloading') AND error<>'rate_limited'")
-            db.execute('UPDATE series SET next_scan=0')
+            db.execute("""UPDATE episodes SET status=CASE WHEN retry_status='missing' THEN 'needs_refresh' ELSE retry_status END,
+                attempts=0,next_try=0,retry_status=''
+                WHERE status='held' AND retry_status IN ('missing','needs_refresh','captured')""")
+
+    def retry_unknown_series(self):
+        with self.db() as db:
+            db.execute('UPDATE series SET next_scan=0,scan_failures=0 WHERE total=0 AND scan_failures>=?', (MAX_ATTEMPTS,))
 
     def next_source(self, status):
         with self.db() as db:
@@ -200,24 +261,22 @@ class LibraryStore:
 
     def update_source(self, item, status, *, error='', verified=0, next_try=0):
         with self.db() as db:
-            db.execute('UPDATE episodes SET status=?,error=?,verified=?,next_try=? WHERE sid=? AND episode=? AND generation=?',
-                (status, error[:100], verified, next_try, item['sid'], item['episode'], item['generation']))
+            return db.execute("""UPDATE episodes SET status=?,error=?,verified=?,next_try=?
+                WHERE sid=? AND episode=? AND generation=? AND status=?""",
+                (status,error[:100],verified,next_try,item['sid'],item['episode'],item['generation'],item['status'])).rowcount
 
     def complete(self, sid, episode, file):
         with self.db() as db:
-            db.execute("UPDATE episodes SET status='done',file=?,error='' WHERE sid=? AND episode=?", (str(file), sid, episode))
+            db.execute("""UPDATE episodes SET status='done',file=?,error='',retry_status='',next_try=0,attempts=0
+                WHERE sid=? AND episode=? AND (status<>'done' OR file<>?)""",(str(file),sid,episode,str(file)))
 
-    def incomplete_saved(self):
+    def saved_episodes(self):
         with self.db() as db:
             return [dict(r) for r in db.execute("SELECT * FROM episodes WHERE status='done'")]
 
-    def scan_finished(self, sid, error=''):
-        with self.db() as db:
-            db.execute('UPDATE series SET scanned=?,next_scan=?,error=? WHERE id=?', (time.time(), time.time() + (300 if error else 60), error[:150], sid))
-
     def pending_series(self):
         now = time.time()
-        return [s for s in self.series() if s['next_scan'] <= now and (not s['total'] or len(self.skip_sources(s['id'])) < s['total'])]
+        return [s for s in self.series() if s['next_scan'] <= now and ((not s['total'] and s['scan_failures']<MAX_ATTEMPTS) or s['capture_due'])]
 
     def migrate(self, inbox):
         if self.setting('inbox_imported', False):

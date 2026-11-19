@@ -29,9 +29,10 @@ class SessionScheduler:
         for job in self.hub.snapshot():
             if job['error']=='rate_limited':
                 self.not_before = now+60
+                engine.rate_limited()
                 for active in self.hub.snapshot():
                     self.finish(active,'rate_limited')
-                engine.note = 'الموقع طلب مهلة دقيقة؛ تنزيل الروابط الجاهزة مستمر.'
+                engine.note = 'الموقع طلب مهلة. ستُستأنف الطلبات تلقائيًا بعد دقيقة.'
                 return
             if job['finished'] or job['paused'] or job['error']:
                 self.finish(job,job['error'] or ('capture_paused' if job['paused'] else ''))
@@ -42,17 +43,24 @@ class SessionScheduler:
         jobs = self.hub.snapshot()
         active_series = {j['seriesId'] for j in jobs}
         occupied = {j['slot'] for j in jobs}
+        if len(occupied) >= self.slots:
+            return
+        renewal_only = not engine.collecting
+        if renewal_only and not engine.store.has_renewals():
+            return
+        candidates = sorted(engine.store.series(),key=lambda s:(self.order.get(s['id'],0),s['discovered'],s['id']))
         for slot in range(1,self.slots+1):
             if slot in occupied:
                 continue
-            candidates = sorted(engine.store.series(),key=lambda s:(self.order.get(s['id'],0),s['discovered'],s['id']))
             chosen = None
             for series in candidates:
                 if series['id'] in active_series or series['next_scan']>now:
                     continue
+                if renewal_only and not series['refresh']:
+                    continue
                 if series['total'] and not series['capture_due']:
                     continue
-                targets = engine.store.capture_targets(series,self.batch)
+                targets = engine.store.capture_targets(series, self.batch, renewal_only=renewal_only)
                 if targets:
                     chosen = series,targets
                     break
@@ -63,7 +71,7 @@ class SessionScheduler:
                 for ep in engine.automatic.recover_completed(series['id'],lambda:engine.shutdown.is_set() or engine.suspend_browser or not (engine.collecting or engine.downloading)):
                     engine.store.complete(series['id'],ep,engine.automatic.completed[series['id']+'/'+str(ep)])
                 self.prepared.add(series['id'])
-                targets = engine.store.capture_targets(series,self.batch)
+                targets = engine.store.capture_targets(series, self.batch, renewal_only=renewal_only)
                 if not targets:
                     continue
             rows = {e['episode']:e for e in engine.store.episodes(series['id'])}
@@ -80,7 +88,5 @@ class SessionScheduler:
                 self.last_open=now
                 engine.opener(page)
             engine.changed()
-        if not self.hub.snapshot():
-            series = engine.store.series()
-            if series and all(s['total'] and s['known_sources']>=s['total'] for s in series):
-                engine.collecting=False
+        if engine.collecting and not self.hub.snapshot() and not engine.store.has_work(download=False):
+            engine.collecting=False

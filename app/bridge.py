@@ -172,7 +172,7 @@ class Bridge:
                     self.library.add_series(body.get('items', []))
                 except (ValueError, TypeError):
                     return 422, {'error': 'invalid_library_catalog'}
-                self.catalog_progress = {'id': self.catalog_job_id, 'done': bool(body.get('done')), 'count': len(self.library.series()), 'error': str(body.get('error', ''))[:100], 'updated': time.time()}
+                self.catalog_progress = {'id': self.catalog_job_id, 'done': bool(body.get('done')), 'count': self.library.count_series(), 'error': str(body.get('error', ''))[:100], 'updated': time.time()}
             if path == "/snapshot":
                 state = body.get("state")
                 if not isinstance(state, dict) or state.get("seriesId") != self.active_series_id or state.get("desktopCommandId") != self.active_run_id:

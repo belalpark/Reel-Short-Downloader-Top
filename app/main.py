@@ -78,6 +78,17 @@ def main():
                     root.update()
                     view=app.library_window.window
                     assert len(app.library_window.table.get_children())==60
+                    buttons = {w.cget('text'): w for w in descendants(view) if isinstance(w, ttk.Button)}
+                    for label in ('نزّل من المكتبة','جرد وجمع الروابط','إعادة محاولة المعلّق'):
+                        button = buttons[label]
+                        assert button.winfo_viewable()
+                        assert view.winfo_rootx() <= button.winfo_rootx()
+                        assert button.winfo_rootx()+button.winfo_width() <= view.winfo_rootx()+view.winfo_width()
+                    app.library_window.search.set('اختبار 04')
+                    app.library_window.refresh()
+                    assert len(app.library_window.table.get_children()) == 1
+                    app.library_window.search.set('')
+                    app.library_window.refresh()
                     args.library_screenshot.parent.mkdir(parents=True,exist_ok=True)
                     ImageGrab.grab(bbox=(view.winfo_rootx(),view.winfo_rooty(),view.winfo_rootx()+view.winfo_width(),view.winfo_rooty()+view.winfo_height())).save(args.library_screenshot)
             finally:

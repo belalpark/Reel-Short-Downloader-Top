@@ -170,6 +170,13 @@
       cancelled:()=>cancelled||!ownSeries(state.seriesId)||C.episodeNumber(location.href)!==episode
     }):{ok:false,reason:'hls_not_observed'};
     if(cancelled||verified.reason==='cancelled')return;
+    if(verified.reason==='hls_drm_protected'){
+      row.mediaUrl='';row.verifiedHlsUrl='';row.captureId='';row.collected=false;
+      row.playbackStatus=row.status='hls_drm_protected';
+      state.note='المشغّل أبلغ عن حماية الفيديو. أُوقفت محاولة تنزيل الحلقة.';
+      await persist(state);
+      return;
+    }
     if(verified.ok){
       row.verifiedHlsUrl=verified.mediaUrl;
       row.hlsMatchedSegments=verified.matchedSegments;
