@@ -124,6 +124,11 @@
     };
     state.note=`الحلقة ${episode}: انتظار تقدم تشغيل الفيديو (حد أقصى ${Math.round((state.waitMs||9000)/1000)} ثوانٍ)`;
     await persist(state);
+    if(state.foreground&&document.visibilityState==='hidden'){
+      // Edge does not start video in a hidden tab; ask for this tab to be shown first.
+      try{await chrome.runtime.sendMessage({type:'DRAMA_SESSION_SHOW'});}catch(_){}
+      for(let i=0;i<25&&document.visibilityState==='hidden'&&!cancelled;i++)await sleep(100);
+    }
     if(state.autoMode){
       const player=document.querySelector('video');
       if(CHANNEL&&player)player.muted=true;
@@ -140,6 +145,13 @@
     row.playbackObservedAt=result.ok?new Date().toISOString():old.playbackObservedAt||'';
     if (!result.ok) {
       row.status=row.mediaUrl?'media_found':result.reason;
+      if(state.collectOnly&&document.visibilityState==='hidden'){
+        // Not the episode's fault: the tab was hidden. Retry later without spending an attempt.
+        row.tried=false;row.status='tab_hidden';
+        state.note=`الحلقة ${episode}: تبويب الالتقاط مخفي فلم يبدأ التشغيل؛ أبقِ نافذة Edge ظاهرة وغير مصغّرة.`;
+        await persist(state);
+        return;
+      }
       recordError(state,episode,result.reason);
       if(!state.autoMode)pause(state,`الحلقة ${episode}: لم يثبت بدء التشغيل (${result.reason}). شغّلها بنفسك واضغط «استئناف»، أو تجاوز الحلقة.`);
       else state.note=`الحلقة ${episode}: لم يبدأ التشغيل؛ ستُعاد محاولة الناقص تلقائيًا.`;
@@ -446,7 +458,7 @@
       state.retryDelayMs=Number(options.retryDelayMs)||10000;
       state.desktopCommandId=String(options.desktopCommandId||'');
       state.patient=!!options.patient;
-      state.collectOnly=!!options.collectOnly;state.lockedFrom=0;
+      state.collectOnly=!!options.collectOnly;state.lockedFrom=0;state.foreground=!!options.foreground;
       state.collectTargets=(options.targetEpisodes||[]).filter(n=>Number.isInteger(n)&&n>0&&n<=total);
       if(previous?.seriesId===id){
         state.rows=Object.fromEntries(Object.entries(previous.rows||{}).map(([key,row])=>[key,{...row,mediaUrl:'',captureId:'',awaitingDownload:false,downloaded:false,collected:false,tried:false,attempts:0,verifiedHlsUrl:'',hlsCandidates:[],status:'page_only',playbackStatus:'not_checked'}]));

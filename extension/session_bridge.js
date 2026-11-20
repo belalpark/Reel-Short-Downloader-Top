@@ -30,8 +30,19 @@
     if(tab&&row.run===job.id){row.job=job;continue;}
     const old=row?.run;
     if(row?.run)await stop(row);
-    if(!tab){tab=await chrome.tabs.create({url:job.pageUrl,active:false});row={tabId:tab.id,created:true};}
-    else{row=row||{};if(tab.url?.split('?')[0]===job.pageUrl)await chrome.tabs.reload(tab.id);else await chrome.tabs.update(tab.id,{url:job.pageUrl});}
+    if(!tab&&job.foreground){
+     // Edge does not start video in hidden tabs: reuse the user's own tab of this series.
+     const owned=new Set(Object.values(slots).map(s=>s.tabId));
+     const open=(await chrome.tabs.query({url:'https://www.reelshort.com/*'})).filter(t=>!owned.has(t.id)&&String(t.url||'').toLowerCase().includes(job.seriesId));
+     tab=open.find(t=>t.active)||open[0];
+     if(tab)row={tabId:tab.id,created:false};
+    }
+    if(!tab){tab=await chrome.tabs.create({url:job.pageUrl,active:!!job.foreground});row={tabId:tab.id,created:true};}
+    else{
+     row=row||{};
+     if(job.foreground)await chrome.tabs.update(tab.id,{active:true});
+     if(tab.url?.split('?')[0]===job.pageUrl)await chrome.tabs.reload(tab.id);else await chrome.tabs.update(tab.id,{url:job.pageUrl});
+    }
     Object.assign(row,{tabId:tab.id,run:job.id,job,started:''});slots[key]=row;
     if(old&&old!==job.id)await chrome.storage.local.remove('dramaScannerSession:'+old);
    }
@@ -55,7 +66,7 @@
     if(entry?.ok)await chrome.tabs.update(row.tabId,{url:entry.pageUrl});return true;
    }
    if(row.started!==row.run){
-    const started=await chrome.tabs.sendMessage(row.tabId,{type:'DRAMA_START',includePaid:true,waitMs:7000,autoMode:true,maxPasses:1,collectOnly:true,
+    const started=await chrome.tabs.sendMessage(row.tabId,{type:'DRAMA_START',includePaid:true,waitMs:7000,autoMode:true,maxPasses:1,collectOnly:true,foreground:!!job.foreground,
      channel:row.run,targetEpisodes:job.targets,collectedEpisodes:job.skipped,desktopCommandId:row.run});
     if(started?.ok){row.started=row.run;await save();}
    }
@@ -80,6 +91,15 @@
   if(message?.type!=='DRAMA_SESSION_SNAPSHOT')return;
   if(sender.id!==chrome.runtime.id||!sender.tab?.url?.startsWith('https://www.reelshort.com/'))return;
   publish(message.state,sender).then(reply).catch(e=>reply({ok:false,error:String(e.message||e)}));return true;
+ });
+ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
+  if(message?.type!=='DRAMA_SESSION_SHOW'||sender.id!==chrome.runtime.id||!sender.tab?.id)return;
+  load().then(async()=>{
+   const row=Object.values(slots).find(s=>s.tabId===sender.tab.id&&s.run);
+   if(!row?.job?.foreground){reply({ok:false});return;}
+   try{await chrome.tabs.update(sender.tab.id,{active:true});reply({ok:true});}catch(_){reply({ok:false});}
+  });
+  return true;
  });
  globalThis.ReelSessions=Object.freeze({poll,tabIds,reconcile});
 })();

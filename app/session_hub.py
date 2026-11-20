@@ -17,7 +17,7 @@ class SessionHub:
         self.paused = False
         self.generation = 0
 
-    def assign(self, slot, series, *, targets=(), skipped=(), page_url='', expected_generation=None):
+    def assign(self, slot, series, *, targets=(), skipped=(), page_url='', expected_generation=None, foreground=False):
         if slot not in range(1, self.LIMIT+1) or not re.fullmatch(r'[a-f0-9]{24}', series['id']):
             raise ValueError('Invalid session')
         page = page_url or series['page_url']
@@ -34,7 +34,9 @@ class SessionHub:
                    'pageUrl': page, 'targets': sorted(set(targets)), 'skipped': sorted(set(skipped)),
                    'started': time.time(), 'seen': 0, 'updated': 0, 'tabId': None, 'current': 0,
                    'finished': False, 'paused': False, 'error': '', 'sources': 0,
-                   'tried': [], 'outcomes': {}, 'paidStart': 0, 'lockedFrom': 0}
+                   'tried': [], 'outcomes': {}, 'paidStart': 0, 'lockedFrom': 0,
+                   # A visible tab: Edge does not start video in hidden background tabs.
+                   'foreground': bool(foreground), 'note': ''}
             self.jobs[slot] = job
             return dict(job)
 
@@ -87,7 +89,7 @@ class SessionHub:
                                    'blocked': status in ('manual_open_required', 'access_unavailable'),
                                    'status': status[:60], 'playback': playback[:60]}
             paid, locked = state.get('paidStart'), state.get('lockedFrom')
-            job.update(tried=sorted(outcomes), outcomes=outcomes,
+            job.update(note=str(state.get('note') or '')[:200], tried=sorted(outcomes), outcomes=outcomes,
                        paidStart=paid if type(paid) is int and 0 < paid <= 150 else job['paidStart'],
                        lockedFrom=locked if type(locked) is int and 0 < locked <= 150 else job['lockedFrom'])
             job.update(updated=time.time(), current=state.get('current', 0), total=state.get('total', 0),

@@ -69,7 +69,11 @@ with tempfile.TemporaryDirectory() as name:
     auto=AutomaticDownloads(package,root/'Inbox',root/'Output',root/'Data',lambda _:None)
     auto.recover_completed=lambda sid,*_:auto.completed_episodes(sid)
     bridge=Bridge(root/'connection.json',inbox=root/'Inbox',library=store)
-    engine=LibraryEngine(store,bridge,auto,package,root/'Data',root/'Output',lambda _:None,
+    events=[]
+    def emit(event):
+        if event[0] in ('series_complete','library_complete'):
+            events.append([event[0],*([event[1],event[3]] if event[0]=='series_complete' else [])])
+    engine=LibraryEngine(store,bridge,auto,package,root/'Data',root/'Output',emit,
         verifier=Verifier(),opener=lambda url:send({'open_request':url}),session_hub=bridge.sessions)
     payload=base64.b64decode((package/'tests/fixture.webm.b64').read_text())
     engine.queue=QueueSpy(engine,payload)
@@ -92,8 +96,11 @@ with tempfile.TemporaryDirectory() as name:
             if request['command']=='collect':engine.start_collection()
             elif request['command']=='download':engine.start_downloads()
             elif request['command']=='stop':engine.stop()
+            elif request['command']=='series':engine.start_series(request['sid'],request['page'])
+            elif request['command']=='sequence':engine.start_library_sequence(exclude=set(request.get('exclude',[])))
             elif request['command']=='status':
                 send({'status':{'series':store.series(),'jobs':bridge.sessions.snapshot(),
-                    'downloading':engine.downloading,'collecting':engine.collecting,'stats':stats}})
+                    'downloading':engine.downloading,'collecting':engine.collecting,'stats':stats,
+                    'current':engine.current,'events':events}})
     finally:
         engine.close();bridge.close()
