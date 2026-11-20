@@ -20,6 +20,8 @@ GENERIC_TITLES = {'series', 'عنوان غير معلن', 'الأحدث', 'ال�
 # Navigation results that mean the site did not open the episode for this account.
 ACCESS_BLOCKED = ('manual_open_required', 'access_unavailable')
 CAPTURE_OPEN = ('missing', 'needs_refresh')
+EPISODE_REASONS = ('playback_not_started', 'video_element_missing', 'hls_not_observed', 'hls_access_denied',
+                   'manual_open_required', 'access_unavailable', 'wrong_page')
 NEVER_PLAYED_LIMIT = 12
 
 
@@ -315,9 +317,11 @@ class LibraryStore:
                     db.execute("UPDATE episodes SET error='rate_limited',next_try=? WHERE sid=? AND episode=?", (now + 60, sid, n))
                 elif n in reached:
                     delay = min(300, 30 * 2 ** min(4, row['attempts']))
+                    seen = outcomes.get(n, {})
+                    why = reason or next((v for v in (seen.get('status'), seen.get('playback')) if v in EPISODE_REASONS), '')
                     db.execute("""UPDATE episodes SET attempts=attempts+1,error=?,next_try=?,retry_status=status,
                         status=CASE WHEN attempts+1>=? THEN 'held' ELSE status END WHERE sid=? AND episode=?""",
-                        (reason or 'source_not_captured', now + delay, MAX_ATTEMPTS, sid, n))
+                        (why or 'source_not_captured', now + delay, MAX_ATTEMPTS, sid, n))
                 else:
                     # The tab never got to this episode (slow pages, stop or timeout): no penalty.
                     db.execute("UPDATE episodes SET error='capture_not_reached',next_try=? WHERE sid=? AND episode=?",
@@ -399,12 +403,36 @@ class LibraryStore:
         with self.db() as db:
             db.execute('UPDATE series SET next_scan=0,scan_failures=0 WHERE total=0 AND scan_failures>=?', (MAX_ATTEMPTS,))
 
-    def next_source(self, status):
+    def next_source(self, status, sid=None):
+        """Next due source; with `sid`, only that series (one series at a time)."""
         with self.db() as db:
             row = db.execute('''SELECT e.*,s.title,s.total,s.page_url series_page FROM episodes e
                 JOIN series s ON s.id=e.sid WHERE e.status=? AND e.next_try<=? AND e.episode<=s.total
-                ORDER BY e.next_try,s.discovered,e.episode LIMIT 1''', (status, time.time())).fetchone()
+                AND (? IS NULL OR e.sid=?)
+                ORDER BY e.next_try,s.discovered,e.episode LIMIT 1''', (status, time.time(), sid, sid)).fetchone()
         return dict(row) if row else None
+
+    OPEN_WORK = """(s.total=0 AND s.scan_failures<{limit}) OR EXISTS(SELECT 1 FROM episodes e WHERE e.sid=s.id
+        AND e.episode<=s.total AND e.status IN ('missing','needs_refresh','captured','ready','downloading'))""".format(limit=MAX_ATTEMPTS)
+
+    def series_has_work(self, sid):
+        """False once every episode is saved, locked in the account, held or unsupported."""
+        with self.db() as db:
+            return bool(db.execute(f'SELECT 1 FROM series s WHERE s.id=? AND ({self.OPEN_WORK})', (sid,)).fetchone())
+
+    def next_series_with_work(self, exclude=()):
+        with self.db() as db:
+            for (sid,) in db.execute(f'SELECT s.id FROM series s WHERE {self.OPEN_WORK} ORDER BY s.discovered,s.id'):
+                if sid not in exclude:
+                    return sid
+        return None
+
+    def series_summary(self, sid):
+        row = next((s for s in self.series() if s['id'] == sid), None)
+        if not row:
+            return {}
+        keys = ('id', 'title', 'total', 'done', 'locked', 'held', 'blocked', 'missing', 'ready', 'refresh')
+        return {k: row[k] for k in keys}
 
     def update_source(self, item, status, *, error='', verified=0, next_try=0):
         with self.db() as db:

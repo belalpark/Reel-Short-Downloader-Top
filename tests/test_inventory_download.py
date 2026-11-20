@@ -54,16 +54,21 @@ class InventoryDownloadTests(unittest.TestCase):
     def test_gui_download_and_restart_never_issue_catalog_even_with_unknown_series(self):
         self.seed(1,[1])
         self.store.add_series([catalog_entry(2)])
-        ui = Mock(library_engine=self.engine, automatic=self.auto, preparing=False)
-        ui._ready.return_value = True
+        # 0.7: without an open series, button 3 downloads the library one complete series
+        # at a time. Still no catalog pass, and only the current series is opened.
+        ui = Mock(library_engine=self.engine, library_store=self.store, automatic=self.auto, preparing=False)
+        ui._library_ready.return_value = True
+        ui.bridge.status.return_value = {'connected': True, 'page_url': 'https://www.reelshort.com/ar'}
+        ui.download_sequence = lambda: DesktopApp.download_sequence(ui)
         DesktopApp.download_library(ui)
         self.engine.tick()
         self.engine.queue.start.assert_called_once()
         self.assertEqual(self.engine.queue.start.call_args.args[0][0].episode,1)
+        first = self.engine.current
         self.assertFalse(self.engine.collecting)
-        self.assertEqual(self.bridge.sessions.snapshot(),[])
+        self.assertEqual({j['seriesId'] for j in self.bridge.sessions.snapshot()}, {first})
         self.assertEqual(self.bridge.catalog_job_id,'')
-        self.open.assert_not_called()
+        self.assertTrue(all(first in str(c.args[0]) for c in self.open.call_args_list))
         self.engine.downloading = False
         self.engine.restore_downloads()
         self.assertTrue(self.engine.downloading)

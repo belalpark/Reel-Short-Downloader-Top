@@ -34,9 +34,12 @@ class LibraryEngine:
         self.note = 'المكتبة جاهزة. اجمع الروابط ثم نزّلها.'
         self.resume_collection = False
         self.source_pause_until = self.store.setting('source_pause_until', 0)
-        # Series the user opened in Edge and asked to download: captured without a catalog pass.
-        saved_focus = self.store.setting('focus_series', [])
-        self.focus = {s for s in saved_focus if isinstance(s, str)} if isinstance(saved_focus, list) else set()
+        # One series at a time: the series is captured and downloaded completely before the next.
+        saved = self.store.setting('current_series', None)
+        self.current = saved if isinstance(saved, str) and len(saved) == 24 else None
+        mode = self.store.setting('series_mode', '')
+        self.sequence = mode if mode in ('single', 'library') and self.current else ''
+        self.continue_after_inventory = False
         self.next_expiry_check = 0
         self.next_open = 0
         self.queue_lock = threading.RLock()
@@ -70,7 +73,9 @@ class LibraryEngine:
 
     def restore_downloads(self):
         """Resume only what the user had running. Restarting never starts an inventory."""
-        if self.store.setting('resume_downloads', False):
+        if self.current and not self.store.series_summary(self.current):
+            self._set_current(None, '')
+        if self.store.setting('resume_downloads', False) or self.current:
             self.start_downloads()
         if self.store.setting('resume_collecting', False):
             self.start_capture()
@@ -102,26 +107,68 @@ class LibraryEngine:
         self.start_inventory()
         self.start_capture()
 
+    def _set_current(self, sid, mode):
+        self.current, self.sequence = sid, (mode if sid else '')
+        self.store.save_setting('current_series', sid)
+        self.store.save_setting('series_mode', self.sequence)
+
     def start_series(self, sid, page_url):
-        """Download the series open in Edge: add it, collect its missing links, download.
-        Only that series is captured; there is no catalog pass."""
+        """Button 3 with a series open in Edge: capture every episode of that series in a
+        visible tab and download as links arrive. No catalog pass, no other series."""
         if self.shutdown.is_set():
             return False
         self.store.add_series([{'id': sid, 'title': 'Series', 'pageUrl': page_url}])
-        self.focus.add(sid)
-        self.store.save_setting('focus_series', sorted(self.focus))
         with self.store.db() as db:
             db.execute('UPDATE series SET next_scan=0,start_failures=0 WHERE id=?', (sid,))
+        if self.scheduler:
+            self.scheduler.prepared.discard(sid)
+            self.scheduler.not_before = 0
+        self._set_current(sid, 'single')
         self.start_downloads()
-        self.note = 'جارٍ جمع روابط المسلسل المفتوح وتنزيل المتاح منها؛ المحفوظ لا يُنزَّل مرة أخرى.'
+        self.note = 'جارٍ فحص حلقات المسلسل المفتوح وتنزيلها حلقة بعد حلقة. لا ينتقل إلى مسلسل آخر قبل اكتماله.'
+        self.wakeup.set()
         self.browser_wakeup.set()
         self.changed()
         return True
 
-    def drop_focus(self, sid):
-        if sid in self.focus:
-            self.focus.discard(sid)
-            self.store.save_setting('focus_series', sorted(self.focus))
+    def start_library_sequence(self, exclude=()):
+        """Series of the library one after another, each completely, oldest first."""
+        if self.shutdown.is_set():
+            return False
+        sid = self.store.next_series_with_work(set(exclude))
+        if not sid:
+            return False
+        if self.scheduler:
+            self.scheduler.not_before = 0
+        self._set_current(sid, 'library')
+        self.start_downloads()
+        title = (self.store.series_summary(sid) or {}).get('title', '')
+        self.note = f'المسلسل الحالي: «{title}». يُفحص ويُنزَّل كاملًا ثم ينتقل التطبيق إلى التالي.'
+        self.wakeup.set()
+        self.browser_wakeup.set()
+        self.changed()
+        return True
+
+    def continue_with_inventory(self):
+        """User agreed: find new series on the site, then continue one series at a time."""
+        self.continue_after_inventory = True
+        self.start_inventory()
+
+    def _series_finished(self):
+        sid, mode = self.current, self.sequence
+        summary = self.store.series_summary(sid)
+        if mode == 'library' and self.start_library_sequence(exclude={sid}):
+            self.emit(('series_complete', sid, summary, mode))
+            return
+        self._set_current(None, '')
+        with self.queue_lock:
+            self.downloading = False
+            self.store.save_setting('resume_downloads', False)
+        self.note = 'اكتمل المسلسل.' if mode == 'single' else 'اكتملت مسلسلات المكتبة المتاحة.'
+        self.emit(('series_complete', sid, summary, mode))
+        if mode == 'library':
+            self.emit(('library_complete',))
+        self.changed()
 
     def start_downloads(self):
         with self.queue_lock:
@@ -150,8 +197,8 @@ class LibraryEngine:
             self.downloading = False
         self.stop_collection()
         self.store.save_setting('resume_collecting', False)
-        self.focus.clear()
-        self.store.save_setting('focus_series', [])
+        self.continue_after_inventory = False
+        self._set_current(None, '')
         with self.queue_lock:
             self.queue.cancel()
             self.store.save_setting('resume_downloads', False)
@@ -197,8 +244,12 @@ class LibraryEngine:
         if self.discovery_id:
             note = self.inventory.poll()
             if note:
-                self.note = note if self.collecting else note.split('.')[0] + '. اضغط «اجمع روابط الناقص» لجمع روابط الحلقات الجديدة.'
+                self.note = note if self.collecting else note.split('.')[0] + '. اضغط «نزّل المسلسلات بالترتيب» لتنزيلها مسلسلًا بعد مسلسل.'
                 self.changed()
+            if not self.discovery_id and self.continue_after_inventory:
+                self.continue_after_inventory = False
+                if not self.start_library_sequence():
+                    self.emit(('library_complete',))
             if self.discovery_id:
                 return
         if self.scheduler:
@@ -312,7 +363,12 @@ class LibraryEngine:
             self._reconcile_saved()
         if time.time() < self.source_pause_until:
             return
-        item = self.store.next_source('captured')
+        current = self.current
+        if current and not self.queue.running and not self.active_item and not self.store.series_has_work(current) \
+                and not any(j['seriesId'] == current for j in (self.scheduler.hub.snapshot() if self.scheduler else [])):
+            self._series_finished()
+            return
+        item = self.store.next_source('captured', sid=current)
         if item:
             if self._already_saved(item):
                 self.changed()
@@ -333,7 +389,7 @@ class LibraryEngine:
                 self.diagnostic(item,check.reason,http_status={'http_forbidden':403,'http_unauthorized':401,'http_not_found':404}.get(check.reason,0),phase='probe')
             self.changed()
         if self.downloading and not self.queue.running:
-            item = self.store.next_source('ready')
+            item = self.store.next_source('ready', sid=current)
             if item:
                 if self._already_saved(item):
                     return
@@ -348,7 +404,7 @@ class LibraryEngine:
                         return
                     self.active_item = {**item, 'status':'downloading'}
                     self.queue.start([Episode(item['sid'], item['title'], item['episode'], item['total'], item['page_url'], item['media_url'], 'playback_verified', 'media_found', item['source_type'], item['generation'], item.get('user_agent',''))], self.destination)
-            elif (not self.collecting and not self.capture and not self.focus
+            elif (not self.collecting and not self.capture and not self.current
                   and not (self.scheduler and self.scheduler.hub.snapshot()) and not self.store.has_work(download=True)):
                 with self.queue_lock:
                     if self.downloading:

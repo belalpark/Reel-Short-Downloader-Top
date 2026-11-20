@@ -290,3 +290,26 @@ test('collection stops at the first paid episode the site will not open and repo
   assert.equal(state.rows['3'].mediaUrl,'');
   assert.match(state.note,/غير متاحة لهذا الحساب/);
 });
+test('a hidden capture tab asks to be shown and a hidden failure is not charged to the episode',async()=>{
+  let stored={},listener,token='';const messages=[];
+  const ctx=load('scanner_core.js','hls_observer.js','playback_probe.js','retry_plan.js');
+  ctx.location={href:`https://www.reelshort.com/episodes/episode-1-test-${ID}`,assign(){throw Error('Unexpected navigation');},reload(){throw Error('Unexpected reload');}};
+  ctx.performance={timeOrigin:Date.now()-1000,getEntriesByType:()=>[]};
+  ctx.sessionStorage={getItem:()=>token,setItem:(_,value)=>{token=value;}};
+  ctx.crypto={randomUUID:()=>'fixture-owner'};
+  ctx.document={title:'Test',visibilityState:'hidden',body:{appendChild(){}},
+    getElementById:id=>id==='__NEXT_DATA__'?{textContent:JSON.stringify({props:{pageProps:{data:{book_id:ID,serial_number:1,chapter_count:1}}}})}:null,
+    querySelectorAll:()=>[],querySelector:()=>null,createElement:()=>({style:{},remove(){}})};
+  ctx.DramaPlaybackProbe={...ctx.DramaPlaybackProbe,waitForPlayback:async()=>({ok:false,reason:'playback_not_started',snapshot:{sourceType:'none',durationSec:null}})};
+  ctx.chrome={storage:{local:{get:async()=>structuredClone(stored),set:async value=>{Object.assign(stored,structuredClone(value));}}},
+    runtime:{sendMessage:async message=>{messages.push(message.type);return {ok:true};},onMessage:{addListener:fn=>{listener=fn;}}}};
+  vm.runInContext(fs.readFileSync(path.join(root,'page_agent.js'),'utf8'),ctx);
+  const send=message=>new Promise(resolve=>listener(message,{},resolve));
+  assert.equal((await send({type:'DRAMA_START',includePaid:true,autoMode:true,maxPasses:1,collectOnly:true,foreground:true,targetEpisodes:[1],desktopCommandId:'run'})).ok,true);
+  await untilPatient(()=>stored.dramaScannerV5Current?.finished);
+  const row=stored.dramaScannerV5Current.rows['1'];
+  assert.ok(messages.includes('DRAMA_SESSION_SHOW'));
+  assert.equal(row.tried,false);
+  assert.equal(row.status,'tab_hidden');
+  assert.equal(row.mediaUrl,'');
+});

@@ -8,6 +8,7 @@ class SessionScheduler:
     BASE = 90
     PROGRESS_TIMEOUT = 150
     BARREN_LIMIT = 6
+    FOCUS_BATCH = 10
 
     def __init__(self, engine, hub, *, slots=3, batch=6, job_timeout=None, idle_timeout=45):
         self.engine, self.hub = engine, hub
@@ -50,6 +51,33 @@ class SessionScheduler:
             self.engine.note = (f'توقف فتح التبويبات {pause // 60} دقيقة: {self.BARREN_LIMIT} جولات متتالية لم يبدأ فيها تشغيل أي حلقة. '
                                 'تأكد أن Edge مسجّل الدخول ويعرض الحلقات، ثم استخدم «فحص / إعادة الربط». التنزيل مستمر.')
 
+    def _capture_current(self, sid, jobs, now, generation):
+        """One series at a time, in one visible tab, until every episode is handled."""
+        engine = self.engine
+        if jobs:
+            return
+        series = next((s for s in engine.store.series() if s['id'] == sid), None)
+        if not series or series['next_scan'] > now:
+            return
+        if sid not in self.prepared:
+            for ep in engine.automatic.recover_completed(sid, lambda: engine.shutdown.is_set() or engine.current != sid):
+                engine.store.complete(sid, ep, engine.automatic.completed[sid + '/' + str(ep)])
+            self.prepared.add(sid)
+        targets = engine.store.capture_targets(series, self.FOCUS_BATCH)
+        if not targets or engine.shutdown.is_set() or engine.suspend_browser or engine.current != sid:
+            return
+        rows = {e['episode']: e for e in engine.store.episodes(sid)}
+        page = rows.get(targets[0], {}).get('page_url') or series['page_url']
+        if not self.hub.assign(1, series, targets=targets, skipped=engine.store.skip_sources(sid), page_url=page,
+                               expected_generation=generation, foreground=True):
+            return
+        self.order[sid] = now
+        engine.note = f"جارٍ فحص حلقات «{series['title']}» من الحلقة {targets[0]} في تبويب Edge الظاهر؛ يبدأ التنزيل مع وصول كل رابط مؤكد."
+        if not engine.bridge.status()['connected'] and now - self.last_open > 20:
+            self.last_open = now
+            engine.opener(page)
+        engine.changed()
+
     def tick(self):
         engine, now = self.engine, time.time()
         generation=self.hub.generation
@@ -75,17 +103,15 @@ class SessionScheduler:
         occupied = {j['slot'] for j in jobs}
         if len(occupied) >= self.slots:
             return
-        renewal_only = not engine.collecting
-        focus = set(getattr(engine, 'focus', ()))
-        if renewal_only and not focus and not engine.store.has_renewals():
+        current = getattr(engine, 'current', None)
+        if current:
+            self._capture_current(current, jobs, now, generation)
             return
-        # The series the user opened comes first, then renewals of links that already failed.
-        candidates = sorted(engine.store.series(),key=lambda s:(0 if s['id'] in focus else 1,0 if s['refresh'] else 1,self.order.get(s['id'],0),s['discovered'],s['id']))
-        for series in candidates:
-            finished = (series['total'] and not series['capture_due']) or (not series['total'] and series['scan_failures'] >= 3)
-            if series['id'] in focus and series['id'] not in active_series and finished:
-                engine.drop_focus(series['id'])
-                focus.discard(series['id'])
+        renewal_only = not engine.collecting
+        if renewal_only and not engine.store.has_renewals():
+            return
+        # Renewals of links that already failed come before new episodes.
+        candidates = sorted(engine.store.series(),key=lambda s:(0 if s['refresh'] else 1,self.order.get(s['id'],0),s['discovered'],s['id']))
         for slot in range(1,self.slots+1):
             if slot in occupied:
                 continue
@@ -93,7 +119,7 @@ class SessionScheduler:
             for series in candidates:
                 if series['id'] in active_series or series['next_scan']>now:
                     continue
-                only_renew = renewal_only and series['id'] not in focus
+                only_renew = renewal_only
                 if only_renew and not series['refresh']:
                     continue
                 if series['total'] and not series['capture_due']:

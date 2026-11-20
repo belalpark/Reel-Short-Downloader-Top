@@ -69,6 +69,10 @@ jobs:
         run: node tests/sessions_browser.cjs
         env:
           HLS_BROWSER_EXECUTABLE: /tmp/chrome-hls/chrome-linux64/chrome
+      - name: One complete series at a time in the user's visible tab
+        run: node tests/series_browser.cjs
+        env:
+          HLS_BROWSER_EXECUTABLE: /tmp/chrome-hls/chrome-linux64/chrome
       - name: Collect a 60-series library and download with the source tab closed
         run: node tests/library_browser.cjs
       - name: Blob HLS regression after eight HTML sources
@@ -135,7 +139,7 @@ jobs:
       - name: Create portable archive and checksums
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/ReelShortDownloaderTop -DestinationPath release/ReelShortDownloaderTop-Portable-0.6.1-win-x64.zip
+          Compress-Archive -Path dist/ReelShortDownloaderTop -DestinationPath release/ReelShortDownloaderTop-Portable-0.7.0-win-x64.zip
           Get-ChildItem release -File | ForEach-Object {
             $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $($_.Name)"

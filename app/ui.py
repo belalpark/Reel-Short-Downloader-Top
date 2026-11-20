@@ -8,7 +8,7 @@ import threading
 import time
 import tempfile
 import tkinter as tk
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from . import VERSION, EXTENSION_VERSION
 from .automatic import AutomaticDownloads, provision_extension, series_from_page
@@ -21,6 +21,7 @@ from .runtime import check_runtime, open_edge
 from .library_store import LibraryStore
 from .library_engine import LibraryEngine
 from .library_ui import LibraryWindow
+from .failures import explanation
 
 NAVY, BLUE, BG, MUTED = "#152540", "#2563EB", "#F2F5FA", "#60718B"
 
@@ -38,6 +39,7 @@ class DesktopApp:
         self.bridge = None
         self.library_engine = self.library_window = None
         self.library_restore_checked = self.resume_single = False
+        self.library_view_sid = None
         self.library_dirty = False
         self.last_library_refresh = 0
         self.library_temporary = tempfile.TemporaryDirectory() if smoke else None
@@ -82,7 +84,7 @@ class DesktopApp:
         self.step_buttons = []
         specs = [("١", "افتح موقع المسلسل", "سجّل دخولك، ثم افتح المسلسل المطلوب.", self.open_site),
                  ("٢", "أضف الملحق", "إضافة وربط تلقائيان، دون رمز أو كلمة مرور.", self.add_extension),
-                 ("٣", "نزّل من المكتبة", "ينزّل المسلسل المفتوح في Edge وروابط المكتبة المحفوظة.", self.download_library)]
+                 ("٣", "نزّل المسلسل كاملًا", "ينزّل المسلسل المفتوح كاملًا ثم يسأل عن البقية.", self.download_library)]
         for index, (number, title, description, command) in enumerate(specs):
             cards.columnconfigure(2-index, weight=1, uniform="steps")
             card = tk.Frame(cards, bg="white", padx=12, pady=10, highlightbackground="#DAE3F0", highlightthickness=1)
@@ -181,7 +183,8 @@ class DesktopApp:
         self.open_library()
 
     def download_library(self):
-        """Button 3: the series open in Edge, plus every saved link. Never a catalog pass."""
+        """Button 3: the series open in Edge, completely, then the prompt for the others.
+        Without an open series: the library, one complete series after another."""
         if not self._library_ready('نزّل المكتبة'):
             return
         page = self.bridge.status().get('page_url', '') if self.bridge else ''
@@ -192,15 +195,95 @@ class DesktopApp:
             except ValueError:
                 sid = ''
             else:
-                self.status.set('أُضيف المسلسل المفتوح في Edge إلى المكتبة؛ تُجمع روابطه وينزَّل المتاح منها، مع بقية روابط المكتبة.')
-        if not sid and not self.library_store.count_series():
-            self.status.set('المكتبة فارغة. افتح صفحة مسلسل في Edge ثم اضغط ٣، أو افتح المكتبة واضغط «جرد مسلسلات جديدة».')
-            self.open_library()
+                self.status.set('بدأ تنزيل المسلسل المفتوح في Edge كاملًا: فحص كل حلقة في التبويب الظاهر ثم تنزيلها. أبقِ نافذة Edge ظاهرة.')
+                self.library_view_sid = None
+                return
+        self.download_sequence()
+
+    def download_sequence(self):
+        if not self._library_ready('نزّل المكتبة'):
             return
+        if self.library_engine.start_library_sequence():
+            self.status.set('تنزيل مسلسلات المكتبة بالترتيب: مسلسل كامل ثم التالي. أبقِ نافذة Edge ظاهرة.')
+            self.library_view_sid = None
+        elif not self.library_store.count_series():
+            self.status.set('المكتبة فارغة. افتح صفحة مسلسل في Edge ثم اضغط ٣، أو اضغط «جرد مسلسلات جديدة» داخل المكتبة.')
+            self.open_library()
+        else:
+            self.status.set('كل مسلسلات المكتبة مكتملة أو مقفلة أو معلّقة. افتح مسلسلًا جديدًا في Edge ثم اضغط ٣، أو اضغط «جرد مسلسلات جديدة».')
+            self.open_library()
+
+    def download_selected(self, sid):
+        if not sid or not self._library_ready('نزّل المسلسل'):
+            return
+        series = self.library_store.series_summary(sid)
+        page = next((s['page_url'] for s in self.library_store.series() if s['id'] == sid), '')
+        if not series or not page:
+            return
+        self.library_engine.start_series(sid, page)
+        self.status.set(f"بدأ تنزيل «{series['title']}» كاملًا. لا ينتقل التطبيق إلى مسلسل آخر قبل اكتماله.")
+        self.library_view_sid = None
+
+    def _series_complete(self, sid, summary, mode):
+        title, total, done = summary.get('title', ''), summary.get('total', 0), summary.get('done', 0)
+        rest = []
+        if summary.get('locked'):
+            rest.append(f"{summary['locked']} مقفلة في الحساب")
+        if summary.get('held'):
+            rest.append(f"{summary['held']} تعذّر التقاطها بعد ثلاث محاولات")
+        if summary.get('blocked'):
+            rest.append(f"{summary['blocked']} محمية أو غير مدعومة")
+        line = f"«{title}»: حُفظت {done} من {total} حلقة." + (" لم تُنزَّل: " + "، ".join(rest) + "." if rest else "")
+        self.status.set('اكتمل ' + line)
+        self.logs.append('series_complete ' + sid + ' ' + json.dumps(summary, ensure_ascii=False))
+        if mode != 'single' or self.smoke:
+            return
+        if not messagebox.askyesno('اكتمل المسلسل', 'اكتمل المسلسل ' + line + '\n\nهل تريد متابعة المسلسلات الأخرى؟\nيُنزَّل كل مسلسل كاملًا قبل الانتقال إلى التالي.', parent=self.root):
+            self.status.set('اكتمل ' + line + ' توقف التطبيق كما طلبت.')
+            return
+        if self.library_engine.start_library_sequence(exclude={sid}):
+            self.status.set('متابعة المسلسلات الأخرى: مسلسل كامل ثم التالي.')
+        elif messagebox.askyesno('لا توجد مسلسلات أخرى', 'لا توجد مسلسلات أخرى ناقصة في المكتبة.\nهل تريد جرد مسلسلات جديدة من الموقع ثم تنزيلها مسلسلًا بعد مسلسل؟', parent=self.root):
+            try:
+                self.library_engine.continue_with_inventory()
+                self.status.set('جارٍ جرد مسلسلات الموقع؛ يبدأ تنزيلها مسلسلًا بعد مسلسل بعد انتهاء الجرد.')
+            except OSError as error:
+                self.status.set('تعذر فتح Edge للجرد. ' + redact(str(error)))
+
+    def _show_current_series(self):
+        """Main window: episodes of the series being processed, with link and file state."""
+        engine = self.library_engine
+        sid = engine.current if engine else None
         if not sid:
-            self.library_engine.start_downloads()
-            self.status.set('جارٍ تنزيل روابط المكتبة المحفوظة. لإضافة مسلسل افتحه في Edge ثم اضغط ٣.')
-        self.open_library()
+            return False
+        if self.library_view_sid != sid:
+            self.table.delete(*self.table.get_children())
+            self.library_view_sid = sid
+        summary = self.library_store.series_summary(sid)
+        if not summary:
+            return False
+        links = {'done': 'محفوظ', 'ready': 'رابط موثق', 'downloading': 'رابط موثق', 'captured': 'رابط قيد الفحص',
+                 'needs_refresh': 'يحتاج تجديدًا', 'missing': 'لم يُلتقط بعد', 'locked': 'مقفلة في الحساب',
+                 'held': 'معلّق', 'blocked': 'غير مدعوم'}
+        files = {'done': 'مكتمل ومفحوص', 'ready': 'بانتظار التنزيل', 'downloading': 'جارٍ التنزيل', 'captured': 'يُفحص الرابط',
+                 'needs_refresh': 'يُجدَّد الرابط من صفحة الحلقة', 'missing': 'بانتظار فحص الحلقة في Edge',
+                 'locked': 'الموقع لم يفتحها لهذا الحساب', 'held': 'توقفت المحاولات التلقائية', 'blocked': 'لن تُنزَّل'}
+        for row in self.library_store.episodes(sid):
+            status = files.get(row['status'], row['status'])
+            if row['error'] and row['status'] not in ('done', 'ready', 'downloading'):
+                status += ' — ' + explanation(row['error']).split('؛')[0]
+            fields = (status, links.get(row['status'], row['status']), row['episode'])
+            iid = str(row['episode'])
+            if self.table.exists(iid):
+                self.table.item(iid, values=fields)
+            else:
+                self.table.insert('', 'end', iid=iid, values=fields)
+        total = summary['total'] or 0
+        self.progress['value'] = (summary['done'] * 100 / total) if total else 0
+        rest = max(0, total - summary['done'] - summary['locked'] - summary['held'] - summary['blocked'])
+        self.counts.set(f"«{summary['title'][:40]}» — محفوظ {summary['done']} من {total or '؟'}   |   روابط جاهزة {summary['ready']}   |   متبقٍ {rest}"
+                        + (f"   |   مقفلة {summary['locked']}" if summary['locked'] else ''))
+        return True
 
     def retry_library(self):
         if not self.library_engine or not self._ready():
@@ -279,7 +362,7 @@ class DesktopApp:
         if self.installing or not self._ready():
             return
         if self.bridge and self.bridge.status()["connected"]:
-            self.status.set("الملحق جاهز. افتح المسلسل في Edge ثم اضغط ٣ — نزّل من المكتبة.")
+            self.status.set("الملحق جاهز. افتح المسلسل في Edge ثم اضغط ٣ — نزّل المسلسل كاملًا.")
             return
         self.installing = True
         self.return_after_install = True
@@ -419,8 +502,16 @@ class DesktopApp:
             elif kind == 'library_error':
                 self.status.set(args[0])
             elif kind == 'library_progress':
-                self.progress['value'] = args[1]
-                self.status.set(f'المكتبة — تنزيل الحلقة {args[0]} — {args[1]:.1f}%')
+                if not (self.library_engine and self.library_engine.current):
+                    self.progress['value'] = args[1]
+                self.status.set(f'تنزيل الحلقة {args[0]} — {args[1]:.1f}%')
+            elif kind == 'series_complete':
+                self.library_dirty = True
+                self._series_complete(*args)
+            elif kind == 'library_complete':
+                self.status.set('اكتمل تنزيل المسلسلات المتاحة في المكتبة.')
+                if not self.smoke:
+                    messagebox.showinfo('اكتملت المكتبة', 'اكتمل تنزيل كل المسلسلات المتاحة في المكتبة.', parent=self.root)
             elif kind == "resume_ready":
                 if self.preparing and args[2] == self.prepare_generation:
                     self.preparing = False
@@ -475,8 +566,9 @@ class DesktopApp:
                     self.status.set(args[0])
         if self.library_dirty and time.monotonic()-self.last_library_refresh>=0.8:
             self.library_dirty=False;self.last_library_refresh=time.monotonic()
-            books=self.library_store.series()
-            self.counts.set(f"المكتبة — محفوظ: {sum(b['done'] for b in books)}   |   جاهز: {sum(b['ready'] for b in books)}   |   المسلسلات: {len(books)}")
+            if not self._show_current_series():
+                books=self.library_store.series()
+                self.counts.set(f"المكتبة — محفوظ: {sum(b['done'] for b in books)}   |   جاهز: {sum(b['ready'] for b in books)}   |   المسلسلات: {len(books)}")
         state = self.bridge.status() if self.bridge else {"connected": False, "command_error": ""}
         connected = state["connected"]
         self.connection.set("الملحق جاهز ومتصل تلقائيًا" if connected else "أضف الملحق من الزر ٢ — دون رمز ربط")
