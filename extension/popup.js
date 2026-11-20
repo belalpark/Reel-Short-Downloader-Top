@@ -1,4 +1,5 @@
 'use strict';
+try{const t=document.getElementById('title');if(t)t.textContent='🎬 Reel Short · Scanner v'+chrome.runtime.getManifest().version;}catch(_){}
 const KEY='dramaScannerV5Current';
 const status=document.getElementById('status');
 const error=document.getElementById('error');

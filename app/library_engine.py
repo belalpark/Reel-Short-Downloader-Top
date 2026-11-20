@@ -34,6 +34,9 @@ class LibraryEngine:
         self.note = 'المكتبة جاهزة. اجمع الروابط ثم نزّلها.'
         self.resume_collection = False
         self.source_pause_until = self.store.setting('source_pause_until', 0)
+        # Series the user opened in Edge and asked to download: captured without a catalog pass.
+        saved_focus = self.store.setting('focus_series', [])
+        self.focus = {s for s in saved_focus if isinstance(s, str)} if isinstance(saved_focus, list) else set()
         self.next_expiry_check = 0
         self.next_open = 0
         self.queue_lock = threading.RLock()
@@ -99,6 +102,27 @@ class LibraryEngine:
         self.start_inventory()
         self.start_capture()
 
+    def start_series(self, sid, page_url):
+        """Download the series open in Edge: add it, collect its missing links, download.
+        Only that series is captured; there is no catalog pass."""
+        if self.shutdown.is_set():
+            return False
+        self.store.add_series([{'id': sid, 'title': 'Series', 'pageUrl': page_url}])
+        self.focus.add(sid)
+        self.store.save_setting('focus_series', sorted(self.focus))
+        with self.store.db() as db:
+            db.execute('UPDATE series SET next_scan=0,start_failures=0 WHERE id=?', (sid,))
+        self.start_downloads()
+        self.note = 'جارٍ جمع روابط المسلسل المفتوح وتنزيل المتاح منها؛ المحفوظ لا يُنزَّل مرة أخرى.'
+        self.browser_wakeup.set()
+        self.changed()
+        return True
+
+    def drop_focus(self, sid):
+        if sid in self.focus:
+            self.focus.discard(sid)
+            self.store.save_setting('focus_series', sorted(self.focus))
+
     def start_downloads(self):
         with self.queue_lock:
             if self.downloading or self.shutdown.is_set():
@@ -126,6 +150,8 @@ class LibraryEngine:
             self.downloading = False
         self.stop_collection()
         self.store.save_setting('resume_collecting', False)
+        self.focus.clear()
+        self.store.save_setting('focus_series', [])
         with self.queue_lock:
             self.queue.cancel()
             self.store.save_setting('resume_downloads', False)
@@ -322,7 +348,8 @@ class LibraryEngine:
                         return
                     self.active_item = {**item, 'status':'downloading'}
                     self.queue.start([Episode(item['sid'], item['title'], item['episode'], item['total'], item['page_url'], item['media_url'], 'playback_verified', 'media_found', item['source_type'], item['generation'], item.get('user_agent',''))], self.destination)
-            elif not self.collecting and not self.capture and not self.store.has_work(download=True):
+            elif (not self.collecting and not self.capture and not self.focus
+                  and not (self.scheduler and self.scheduler.hub.snapshot()) and not self.store.has_work(download=True)):
                 with self.queue_lock:
                     if self.downloading:
                         self.downloading = False

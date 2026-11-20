@@ -82,7 +82,7 @@ class DesktopApp:
         self.step_buttons = []
         specs = [("١", "افتح موقع المسلسل", "سجّل دخولك، ثم افتح المسلسل المطلوب.", self.open_site),
                  ("٢", "أضف الملحق", "إضافة وربط تلقائيان، دون رمز أو كلمة مرور.", self.add_extension),
-                 ("٣", "نزّل من المكتبة", "تنزيل الحلقات ذات الروابط المحفوظة ومواصلة الناقص.", self.download_library)]
+                 ("٣", "نزّل من المكتبة", "ينزّل المسلسل المفتوح في Edge وروابط المكتبة المحفوظة.", self.download_library)]
         for index, (number, title, description, command) in enumerate(specs):
             cards.columnconfigure(2-index, weight=1, uniform="steps")
             card = tk.Frame(cards, bg="white", padx=12, pady=10, highlightbackground="#DAE3F0", highlightthickness=1)
@@ -181,9 +181,25 @@ class DesktopApp:
         self.open_library()
 
     def download_library(self):
+        """Button 3: the series open in Edge, plus every saved link. Never a catalog pass."""
         if not self._library_ready('نزّل المكتبة'):
             return
-        self.library_engine.start_downloads()
+        page = self.bridge.status().get('page_url', '') if self.bridge else ''
+        sid = series_from_page(page)
+        if sid:
+            try:
+                self.library_engine.start_series(sid, page)
+            except ValueError:
+                sid = ''
+            else:
+                self.status.set('أُضيف المسلسل المفتوح في Edge إلى المكتبة؛ تُجمع روابطه وينزَّل المتاح منها، مع بقية روابط المكتبة.')
+        if not sid and not self.library_store.count_series():
+            self.status.set('المكتبة فارغة. افتح صفحة مسلسل في Edge ثم اضغط ٣، أو افتح المكتبة واضغط «جرد مسلسلات جديدة».')
+            self.open_library()
+            return
+        if not sid:
+            self.library_engine.start_downloads()
+            self.status.set('جارٍ تنزيل روابط المكتبة المحفوظة. لإضافة مسلسل افتحه في Edge ثم اضغط ٣.')
         self.open_library()
 
     def retry_library(self):
@@ -263,7 +279,7 @@ class DesktopApp:
         if self.installing or not self._ready():
             return
         if self.bridge and self.bridge.status()["connected"]:
-            self.status.set("الملحق جاهز. افتح المسلسل واضغط بدء التنزيل.")
+            self.status.set("الملحق جاهز. افتح المسلسل في Edge ثم اضغط ٣ — نزّل من المكتبة.")
             return
         self.installing = True
         self.return_after_install = True
