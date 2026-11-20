@@ -76,10 +76,16 @@ class SessionScheduler:
         if len(occupied) >= self.slots:
             return
         renewal_only = not engine.collecting
-        if renewal_only and not engine.store.has_renewals():
+        focus = set(getattr(engine, 'focus', ()))
+        if renewal_only and not focus and not engine.store.has_renewals():
             return
-        # Renewals of links that already failed come before new episodes.
-        candidates = sorted(engine.store.series(),key=lambda s:(0 if s['refresh'] else 1,self.order.get(s['id'],0),s['discovered'],s['id']))
+        # The series the user opened comes first, then renewals of links that already failed.
+        candidates = sorted(engine.store.series(),key=lambda s:(0 if s['id'] in focus else 1,0 if s['refresh'] else 1,self.order.get(s['id'],0),s['discovered'],s['id']))
+        for series in candidates:
+            finished = (series['total'] and not series['capture_due']) or (not series['total'] and series['scan_failures'] >= 3)
+            if series['id'] in focus and series['id'] not in active_series and finished:
+                engine.drop_focus(series['id'])
+                focus.discard(series['id'])
         for slot in range(1,self.slots+1):
             if slot in occupied:
                 continue
@@ -87,11 +93,12 @@ class SessionScheduler:
             for series in candidates:
                 if series['id'] in active_series or series['next_scan']>now:
                     continue
-                if renewal_only and not series['refresh']:
+                only_renew = renewal_only and series['id'] not in focus
+                if only_renew and not series['refresh']:
                     continue
                 if series['total'] and not series['capture_due']:
                     continue
-                targets = engine.store.capture_targets(series, self.batch, renewal_only=renewal_only)
+                targets = engine.store.capture_targets(series, self.batch, renewal_only=only_renew)
                 if targets:
                     chosen = series,targets
                     break
@@ -102,7 +109,7 @@ class SessionScheduler:
                 for ep in engine.automatic.recover_completed(series['id'],lambda:engine.shutdown.is_set() or engine.suspend_browser or not (engine.collecting or engine.downloading)):
                     engine.store.complete(series['id'],ep,engine.automatic.completed[series['id']+'/'+str(ep)])
                 self.prepared.add(series['id'])
-                targets = engine.store.capture_targets(series, self.batch, renewal_only=renewal_only)
+                targets = engine.store.capture_targets(series, self.batch, renewal_only=only_renew)
                 if not targets:
                     continue
             rows = {e['episode']:e for e in engine.store.episodes(series['id'])}
